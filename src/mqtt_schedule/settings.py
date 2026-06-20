@@ -14,6 +14,7 @@ class RuntimeSettings:
     openweather_forecast_file: Path
     tempest_data_dir: Path
     device_serial_file: Path
+    commissioning_only_destinations: tuple[str, ...] = ()
     source_serial_override: str | None = None
     tempest_station_id: int = 201749
     openweather_url: str = "https://api.openweathermap.org/data/2.5"
@@ -91,6 +92,7 @@ class RuntimeSettings:
                     str(state_dir / "device_serial.txt"),
                 )
             ),
+            commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS"),
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE"),
             tempest_station_id=int(os.environ.get("MQTT_SCHEDULE_TEMPEST_STATION_ID", "201749")),
             openweather_url=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_URL", "https://api.openweathermap.org/data/2.5"),
@@ -135,6 +137,7 @@ class RuntimeSettings:
             openweather_forecast_file=Path(data["openweather_forecast_file"]),
             tempest_data_dir=Path(data["tempest_data_dir"]),
             device_serial_file=Path(data.get("device_serial_file", "/var/lib/mqtt_schedule/device_serial.txt")),
+            commissioning_only_destinations=tuple(data.get("commissioning_only_destinations", [])),
             source_serial_override=data.get("source_serial_override"),
             tempest_station_id=int(data.get("tempest_station_id", 201749)),
             openweather_url=data.get("openweather_url", "https://api.openweathermap.org/data/2.5"),
@@ -180,3 +183,10 @@ def _env_float(name: str) -> float | None:
     if raw is None or raw.strip() == "":
         return None
     return float(raw)
+
+
+def _env_csv(name: str) -> tuple[str, ...]:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return ()
+    return tuple(item.strip() for item in raw.split(",") if item.strip())

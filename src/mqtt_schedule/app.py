@@ -80,3 +80,16 @@ class SchedulerApplication:
             command_count=len(commands),
             evaluation_results=evaluation_results,
         )
+
+
+@dataclass
+class FilteredControllerRepository:
+    base: ControllerRepository
+    allowed_destinations: set[str]
+
+    def list_controllers(self) -> list[ControllerTarget]:
+        return [
+            controller
+            for controller in self.base.list_controllers()
+            if controller.name_link in self.allowed_destinations
+        ]

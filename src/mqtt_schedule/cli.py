@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
-from dataclasses import dataclass
 
 from .airtable_repositories import FileControllerRepository, FileScheduleRepository
-from .app import ControllerRepository, SchedulerApplication
+from .app import ControllerRepository, FilteredControllerRepository, SchedulerApplication
 from .hostinfo import HostInfoProvider
 from .identity import DeviceIdentity, DeviceIdentitySettings
 from .mqtt_adapter import MQTTBrokerSettings, MQTTCommandEncoder, PahoClientFactory, PahoCommandPublisher, StdoutCommandPublisher
@@ -26,7 +25,7 @@ def main() -> int:
         "--only-destination",
         action="append",
         default=[],
-        help="Limit matching controllers to one or more destination serials for safe commissioning.",
+        help="Further restrict matching controllers to one or more destination serials for safe commissioning.",
     )
     parser.add_argument("--service", action="store_true", help="Run as a long-lived Linux-style service.")
     parser.add_argument("--run-immediately", action="store_true", help="When used with --service, execute one tick before waiting for the next minute boundary.")
@@ -74,12 +73,10 @@ def main() -> int:
         client = PahoClientFactory.connect(encoder.settings)
         publisher = PahoCommandPublisher(client=client, encoder=encoder)
 
-    controller_repository: ControllerRepository = FileControllerRepository(settings.controller_file)
-    if args.only_destination:
-        controller_repository = FilteredControllerRepository(
-            base=controller_repository,
-            allowed_destinations=set(args.only_destination),
-        )
+    controller_repository: ControllerRepository = build_controller_repository(
+        settings=settings,
+        cli_only_destinations=args.only_destination,
+    )
 
     app = SchedulerApplication(
         schedule_repository=FileScheduleRepository(settings.schedule_file),
@@ -178,6 +175,38 @@ def _build_tempest_refresher(settings: RuntimeSettings) -> TempestRefresher | No
     )
 
 
+def build_controller_repository(
+    *,
+    settings: RuntimeSettings,
+    cli_only_destinations: list[str],
+) -> ControllerRepository:
+    controller_repository: ControllerRepository = FileControllerRepository(settings.controller_file)
+    allowed_destinations = resolve_allowed_destinations(
+        configured_destinations=settings.commissioning_only_destinations,
+        cli_destinations=cli_only_destinations,
+    )
+    if not allowed_destinations:
+        return controller_repository
+    return FilteredControllerRepository(
+        base=controller_repository,
+        allowed_destinations=allowed_destinations,
+    )
+
+
+def resolve_allowed_destinations(
+    *,
+    configured_destinations: tuple[str, ...],
+    cli_destinations: list[str],
+) -> set[str]:
+    configured = set(configured_destinations)
+    cli = set(cli_destinations)
+    if configured and cli:
+        return configured & cli
+    if configured:
+        return configured
+    return cli
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
@@ -199,16 +228,3 @@ def _print_explanations(snapshot) -> None:
             f"irrigation_allowed={explanation.irrigation_allowed} "
             f"irrigation_reason={explanation.irrigation_reason}"
         )
-
-
-@dataclass
-class FilteredControllerRepository(ControllerRepository):
-    base: ControllerRepository
-    allowed_destinations: set[str]
-
-    def list_controllers(self):
-        return [
-            controller
-            for controller in self.base.list_controllers()
-            if controller.name_link in self.allowed_destinations
-        ]

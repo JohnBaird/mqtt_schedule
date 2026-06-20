@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from mqtt_schedule.airtable_repositories import FileControllerRepository
-from mqtt_schedule.cli import FilteredControllerRepository
+from mqtt_schedule.app import FilteredControllerRepository
+from mqtt_schedule.cli import resolve_allowed_destinations
 from mqtt_schedule.domain import ControllerTarget, IrrigationDecision, ScheduleEntry, SunTimes
 from mqtt_schedule.scheduler import ScheduleEvaluator, SchedulerConfig
 
@@ -66,3 +66,21 @@ def test_scheduler_targets_only_filtered_controller() -> None:
 
     assert len(commands) == 1
     assert commands[0].controller_links == ["222"]
+
+
+def test_cli_destinations_only_narrow_configured_destinations() -> None:
+    allowed = resolve_allowed_destinations(
+        configured_destinations=("222", "333"),
+        cli_destinations=["222", "999"],
+    )
+
+    assert allowed == {"222"}
+
+
+def test_configured_destinations_apply_without_cli_override() -> None:
+    allowed = resolve_allowed_destinations(
+        configured_destinations=("222", "333"),
+        cli_destinations=[],
+    )
+
+    assert allowed == {"222", "333"}

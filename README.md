@@ -88,9 +88,16 @@ Planned placement for connection information:
 - OpenWeather API key: `mqtt_schedule.env`
 - Tempest token: `mqtt_schedule.env`
 - Persisted device identity: `/var/lib/mqtt_schedule/device_serial.txt`
+- Temporary commissioning destination filter: `runtime.json` or `mqtt_schedule.env`
 
 This split is intentional so we do not keep secrets in the main checked-in config file.
 The MQTT topic source serial is derived from machine identity and persisted as runtime state, not edited as normal config.
+
+Commissioning safety:
+
+- `commissioning_only_destinations` in `runtime.json` limits all runs, including `--service`, to specific controller serials.
+- `MQTT_SCHEDULE_ONLY_DESTINATIONS` in `mqtt_schedule.env` provides the same filter as a comma-separated list.
+- CLI `--only-destination` can further narrow the configured filter, but it cannot widen it.
 
 Service runtime:
 
@@ -133,4 +140,16 @@ sudo bash /home/john/mqtt_schedule_temp/deploy/install_linux.sh /home/john/mqtt_
 
 ```bash
 /opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --service
+```
+
+For commissioning one real controller in service mode, set either:
+
+```json
+"commissioning_only_destinations": ["242606363309393"]
+```
+
+or:
+
+```bash
+MQTT_SCHEDULE_ONLY_DESTINATIONS=242606363309393
 ```

@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-
 from .airtable_repositories import FileControllerRepository, FileScheduleRepository
-from .app import SchedulerApplication
+from .app import FilteredControllerRepository, SchedulerApplication
 from .hostinfo import HostInfoProvider
 from .identity import DeviceIdentity, DeviceIdentitySettings
 from .mqtt_adapter import MQTTBrokerSettings, MQTTCommandEncoder, PahoClientFactory, PahoCommandPublisher
@@ -48,9 +45,16 @@ def build_file_backed_application(settings: RuntimeSettings) -> SchedulerApplica
     client = PahoClientFactory.connect(mqtt_settings)
     publisher = PahoCommandPublisher(client=client, encoder=MQTTCommandEncoder(mqtt_settings))
 
+    controller_repository = FileControllerRepository(settings.controller_file)
+    if settings.commissioning_only_destinations:
+        controller_repository = FilteredControllerRepository(
+            base=controller_repository,
+            allowed_destinations=set(settings.commissioning_only_destinations),
+        )
+
     return SchedulerApplication(
         schedule_repository=FileScheduleRepository(settings.schedule_file),
-        controller_repository=FileControllerRepository(settings.controller_file),
+        controller_repository=controller_repository,
         sun_times_provider=OpenWeatherFileSunTimesProvider(
             current_file=settings.openweather_current_file,
             timezone_name=settings.timezone_name,
