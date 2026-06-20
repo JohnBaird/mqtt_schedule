@@ -26,6 +26,7 @@ class RuntimeSettings:
     tempest_token: str | None = None
     weather_refresh_openweather_seconds: int = 3 * 3600
     weather_refresh_tempest_seconds: int = 3600
+    weather_refresh_run_immediately: bool = False
     tempest_snapshot_keep: int = 5
     mqtt_host: str = "localhost"
     mqtt_port: int = 1883
@@ -104,6 +105,7 @@ class RuntimeSettings:
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN"),
             weather_refresh_openweather_seconds=int(os.environ.get("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", str(3 * 3600))),
             weather_refresh_tempest_seconds=int(os.environ.get("MQTT_SCHEDULE_TEMPEST_REFRESH_SECONDS", "3600")),
+            weather_refresh_run_immediately=_env_bool("MQTT_SCHEDULE_WEATHER_REFRESH_RUN_IMMEDIATELY", False),
             tempest_snapshot_keep=int(os.environ.get("MQTT_SCHEDULE_TEMPEST_SNAPSHOT_KEEP", "5")),
             mqtt_host=os.environ.get("MQTT_SCHEDULE_MQTT_HOST", "localhost"),
             mqtt_port=int(os.environ.get("MQTT_SCHEDULE_MQTT_PORT", "1883")),
@@ -130,7 +132,7 @@ class RuntimeSettings:
     @classmethod
     def from_json_file(cls, path: str | Path) -> RuntimeSettings:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        return cls(
+        settings = cls(
             schedule_file=Path(data["schedule_file"]),
             controller_file=Path(data["controller_file"]),
             openweather_current_file=Path(data["openweather_current_file"]),
@@ -149,6 +151,7 @@ class RuntimeSettings:
             tempest_token=data.get("tempest_token"),
             weather_refresh_openweather_seconds=int(data.get("weather_refresh_openweather_seconds", 3 * 3600)),
             weather_refresh_tempest_seconds=int(data.get("weather_refresh_tempest_seconds", 3600)),
+            weather_refresh_run_immediately=bool(data.get("weather_refresh_run_immediately", False)),
             tempest_snapshot_keep=int(data.get("tempest_snapshot_keep", 5)),
             mqtt_host=data.get("mqtt_host", "localhost"),
             mqtt_port=int(data.get("mqtt_port", 1883)),
@@ -169,6 +172,61 @@ class RuntimeSettings:
             rain_7d_block_mm=float(data.get("rain_7d_block_mm", 15.0)),
             require_latest_within_minutes=int(data.get("require_latest_within_minutes", 180)),
         )
+        return settings.apply_env_overrides()
+
+    def apply_env_overrides(self) -> RuntimeSettings:
+        return RuntimeSettings(
+            schedule_file=_env_path("MQTT_SCHEDULE_SCHEDULE_FILE", self.schedule_file),
+            controller_file=_env_path("MQTT_SCHEDULE_CONTROLLER_FILE", self.controller_file),
+            openweather_current_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_CURRENT_FILE", self.openweather_current_file),
+            openweather_forecast_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_FORECAST_FILE", self.openweather_forecast_file),
+            tempest_data_dir=_env_path("MQTT_SCHEDULE_TEMPEST_DATA_DIR", self.tempest_data_dir),
+            device_serial_file=_env_path("MQTT_SCHEDULE_DEVICE_SERIAL_FILE", self.device_serial_file),
+            commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS") or self.commissioning_only_destinations,
+            source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE", self.source_serial_override),
+            tempest_station_id=_env_int("MQTT_SCHEDULE_TEMPEST_STATION_ID", self.tempest_station_id),
+            openweather_url=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_URL", self.openweather_url),
+            openweather_api_key=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_API_KEY", self.openweather_api_key),
+            openweather_lat=_env_optional_float("MQTT_SCHEDULE_OPENWEATHER_LAT", self.openweather_lat),
+            openweather_lon=_env_optional_float("MQTT_SCHEDULE_OPENWEATHER_LON", self.openweather_lon),
+            openweather_units=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_UNITS", self.openweather_units),
+            tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", self.tempest_base_url),
+            tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN", self.tempest_token),
+            weather_refresh_openweather_seconds=_env_int(
+                "MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS",
+                self.weather_refresh_openweather_seconds,
+            ),
+            weather_refresh_tempest_seconds=_env_int(
+                "MQTT_SCHEDULE_TEMPEST_REFRESH_SECONDS",
+                self.weather_refresh_tempest_seconds,
+            ),
+            weather_refresh_run_immediately=_env_bool(
+                "MQTT_SCHEDULE_WEATHER_REFRESH_RUN_IMMEDIATELY",
+                self.weather_refresh_run_immediately,
+            ),
+            tempest_snapshot_keep=_env_int("MQTT_SCHEDULE_TEMPEST_SNAPSHOT_KEEP", self.tempest_snapshot_keep),
+            mqtt_host=os.environ.get("MQTT_SCHEDULE_MQTT_HOST", self.mqtt_host),
+            mqtt_port=_env_int("MQTT_SCHEDULE_MQTT_PORT", self.mqtt_port),
+            mqtt_keepalive=_env_int("MQTT_SCHEDULE_MQTT_KEEPALIVE", self.mqtt_keepalive),
+            mqtt_username=os.environ.get("MQTT_SCHEDULE_MQTT_USERNAME", self.mqtt_username),
+            mqtt_password=os.environ.get("MQTT_SCHEDULE_MQTT_PASSWORD", self.mqtt_password),
+            mqtt_topic_version=os.environ.get("MQTT_SCHEDULE_MQTT_TOPIC_VERSION", self.mqtt_topic_version),
+            mqtt_domain=os.environ.get("MQTT_SCHEDULE_MQTT_DOMAIN", self.mqtt_domain),
+            timezone_name=os.environ.get("MQTT_SCHEDULE_TIMEZONE", self.timezone_name),
+            hemisphere=os.environ.get("MQTT_SCHEDULE_HEMISPHERE", self.hemisphere),
+            use_duration_sunrise=_env_bool("MQTT_SCHEDULE_USE_DURATION_SUNRISE", self.use_duration_sunrise),
+            use_duration_sunset=_env_bool("MQTT_SCHEDULE_USE_DURATION_SUNSET", self.use_duration_sunset),
+            program_name=os.environ.get("MQTT_SCHEDULE_PROGRAM_NAME", self.program_name),
+            program_version=os.environ.get("MQTT_SCHEDULE_PROGRAM_VERSION", self.program_version),
+            rain_now_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_NOW_BLOCK_MM", self.rain_now_block_mm),
+            rain_24h_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_24H_BLOCK_MM", self.rain_24h_block_mm),
+            rain_48h_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_48H_BLOCK_MM", self.rain_48h_block_mm),
+            rain_7d_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_7D_BLOCK_MM", self.rain_7d_block_mm),
+            require_latest_within_minutes=_env_int(
+                "MQTT_SCHEDULE_REQUIRE_LATEST_WITHIN_MINUTES",
+                self.require_latest_within_minutes,
+            ),
+        )
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -183,6 +241,36 @@ def _env_float(name: str) -> float | None:
     if raw is None or raw.strip() == "":
         return None
     return float(raw)
+
+
+def _env_optional_float(name: str, default: float | None) -> float | None:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    if raw.strip() == "":
+        return None
+    return float(raw)
+
+
+def _env_float_with_default(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return float(raw)
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return int(raw)
+
+
+def _env_path(name: str, default: Path) -> Path:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return Path(raw)
 
 
 def _env_csv(name: str) -> tuple[str, ...]:

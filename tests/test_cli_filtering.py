@@ -1,8 +1,11 @@
 from datetime import datetime
 
 from mqtt_schedule.app import FilteredControllerRepository
-from mqtt_schedule.cli import resolve_allowed_destinations
+from pathlib import Path
+
+from mqtt_schedule.cli import build_weather_refresh_jobs, resolve_allowed_destinations
 from mqtt_schedule.domain import ControllerTarget, IrrigationDecision, ScheduleEntry, SunTimes
+from mqtt_schedule.settings import RuntimeSettings
 from mqtt_schedule.scheduler import ScheduleEvaluator, SchedulerConfig
 
 
@@ -84,3 +87,27 @@ def test_configured_destinations_apply_without_cli_override() -> None:
     )
 
     assert allowed == {"222", "333"}
+
+
+def test_build_weather_refresh_jobs_uses_runtime_settings(tmp_path: Path) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        openweather_api_key="ow-key",
+        openweather_lat=33.3,
+        openweather_lon=-84.4,
+        tempest_token="tempest-token",
+        weather_refresh_openweather_seconds=300,
+        weather_refresh_tempest_seconds=600,
+        weather_refresh_run_immediately=True,
+    )
+
+    jobs = build_weather_refresh_jobs(settings=settings)
+
+    assert [job.job_id for job in jobs] == ["openweather-refresh", "tempest-refresh"]
+    assert [job.interval_seconds for job in jobs] == [300, 600]
+    assert all(job.run_immediately for job in jobs)

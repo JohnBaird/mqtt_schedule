@@ -27,6 +27,11 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print MQTT messages instead of publishing them.")
     parser.add_argument("--explain", action="store_true", help="Print schedule match explanations for validation.")
     parser.add_argument(
+        "--refresh-weather-now",
+        action="store_true",
+        help="Run configured OpenWeather/Tempest refresh jobs immediately before scheduler processing.",
+    )
+    parser.add_argument(
         "--only-destination",
         action="append",
         default=[],
@@ -117,34 +122,16 @@ def main() -> int:
     )
 
     try:
+        refresh_jobs = build_weather_refresh_jobs(
+            settings=settings,
+        )
         if args.service:
-            periodic_jobs: list[PeriodicJob] = []
-            openweather_refresher = _build_openweather_refresher(settings)
-            if openweather_refresher is not None:
-                periodic_jobs.append(
-                    PeriodicJob(
-                        job_id="openweather-refresh",
-                        interval_seconds=settings.weather_refresh_openweather_seconds,
-                        fn=openweather_refresher.refresh,
-                        run_immediately=False,
-                    )
-                )
-
-            tempest_refresher = _build_tempest_refresher(settings)
-            if tempest_refresher is not None:
-                periodic_jobs.append(
-                    PeriodicJob(
-                        job_id="tempest-refresh",
-                        interval_seconds=settings.weather_refresh_tempest_seconds,
-                        fn=tempest_refresher.refresh,
-                        run_immediately=False,
-                    )
-                )
-
+            if args.refresh_weather_now:
+                _run_weather_refresh_now(refresh_jobs)
             runner = ServiceRunner(
                 app,
                 config=ServiceConfig(run_immediately=args.run_immediately),
-                periodic_jobs=periodic_jobs,
+                periodic_jobs=refresh_jobs,
             )
             signals = SignalAwareService(runner)
             signals.install_signal_handlers()
@@ -154,6 +141,9 @@ def main() -> int:
                 f"seconds_until_next_minute={seconds_until_next_minute(now):.3f}"
             )
             return runner.run_forever()
+
+        if args.refresh_weather_now:
+            _run_weather_refresh_now(refresh_jobs)
 
         snapshot = app.run_schedule_tick(now)
         if args.explain and snapshot.evaluation_results is not None:
@@ -191,6 +181,61 @@ def _build_tempest_refresher(settings: RuntimeSettings) -> TempestRefresher | No
             snapshot_keep=settings.tempest_snapshot_keep,
         )
     )
+
+
+def build_weather_refresh_jobs(
+    *,
+    settings: RuntimeSettings,
+) -> list[PeriodicJob]:
+    jobs: list[PeriodicJob] = []
+    logger = logging.getLogger("mqtt_schedule.cli")
+
+    openweather_refresher = _build_openweather_refresher(settings)
+    if openweather_refresher is not None:
+        jobs.append(
+            PeriodicJob(
+                job_id="openweather-refresh",
+                interval_seconds=settings.weather_refresh_openweather_seconds,
+                fn=openweather_refresher.refresh,
+                run_immediately=settings.weather_refresh_run_immediately,
+            )
+        )
+    else:
+        logger.info("weather_refresh_disabled job_id=openweather-refresh reason=missing_configuration")
+
+    tempest_refresher = _build_tempest_refresher(settings)
+    if tempest_refresher is not None:
+        jobs.append(
+            PeriodicJob(
+                job_id="tempest-refresh",
+                interval_seconds=settings.weather_refresh_tempest_seconds,
+                fn=tempest_refresher.refresh,
+                run_immediately=settings.weather_refresh_run_immediately,
+            )
+        )
+    else:
+        logger.info("weather_refresh_disabled job_id=tempest-refresh reason=missing_configuration")
+
+    for job in jobs:
+        logger.info(
+            "weather_refresh_configured job_id=%s interval_seconds=%s run_immediately=%s",
+            job.job_id,
+            job.interval_seconds,
+            job.run_immediately,
+        )
+
+    return jobs
+
+
+def _run_weather_refresh_now(jobs: list[PeriodicJob]) -> None:
+    logger = logging.getLogger("mqtt_schedule.cli")
+    if not jobs:
+        logger.info("weather_refresh_now_skipped reason=no_configured_jobs")
+        return
+    logger.info("weather_refresh_now_start job_count=%s", len(jobs))
+    for job in jobs:
+        job.fn()
+    logger.info("weather_refresh_now_complete job_count=%s", len(jobs))
 
 
 def build_controller_repository(

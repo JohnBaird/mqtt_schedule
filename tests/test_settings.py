@@ -49,3 +49,36 @@ def test_runtime_settings_reads_commissioning_destinations_from_env(monkeypatch)
         "242606363309393",
         "115445361687700",
     )
+
+
+def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "runtime.json"
+    config_file.write_text(
+        """
+{
+  "schedule_file": "/etc/mqtt_schedule/airtable_schedule_data.json",
+  "controller_file": "/etc/mqtt_schedule/airtable_config_data.json",
+  "openweather_current_file": "/etc/mqtt_schedule/ow_records_current.json",
+  "openweather_forecast_file": "/etc/mqtt_schedule/ow_records_forecast.json",
+  "tempest_data_dir": "/etc/mqtt_schedule/tempest_weather_data",
+  "openweather_lat": 33.1,
+  "openweather_lon": -84.1,
+  "weather_refresh_openweather_seconds": 10800,
+  "weather_refresh_tempest_seconds": 3600
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MQTT_SCHEDULE_OPENWEATHER_API_KEY", "env-openweather-key")
+    monkeypatch.setenv("MQTT_SCHEDULE_TEMPEST_TOKEN", "env-tempest-token")
+    monkeypatch.setenv("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", "300")
+    monkeypatch.setenv("MQTT_SCHEDULE_TEMPEST_REFRESH_SECONDS", "600")
+    monkeypatch.setenv("MQTT_SCHEDULE_WEATHER_REFRESH_RUN_IMMEDIATELY", "true")
+
+    settings = RuntimeSettings.from_json_file(config_file)
+
+    assert settings.openweather_api_key == "env-openweather-key"
+    assert settings.tempest_token == "env-tempest-token"
+    assert settings.weather_refresh_openweather_seconds == 300
+    assert settings.weather_refresh_tempest_seconds == 600
+    assert settings.weather_refresh_run_immediately is True

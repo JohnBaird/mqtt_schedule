@@ -77,6 +77,7 @@ Configuration layout:
 
 - Non-secret operational settings belong in `/etc/mqtt_schedule/runtime.json`.
 - Secrets and connection credentials belong in `/etc/mqtt_schedule/mqtt_schedule.env`.
+- When `--config /etc/mqtt_schedule/runtime.json` is used, environment variables from `mqtt_schedule.env` still override JSON values for secrets and commissioning-time overrides.
 - The sample files are:
   - [runtime.example.json](E:\Development\mqtt_schedule\deploy\runtime.example.json:1)
   - [mqtt_schedule.env.example](E:\Development\mqtt_schedule\deploy\mqtt_schedule.env.example:1)
@@ -104,6 +105,7 @@ Service runtime:
 - `python -m mqtt_schedule --service` runs the scheduler continuously.
 - The service loop fires once per minute on the wall-clock minute boundary.
 - The same service loop can also refresh OpenWeather and Tempest files on independent intervals when credentials are configured.
+- `python -m mqtt_schedule --refresh-weather-now` forces the configured weather refresh jobs to run immediately and update the local files.
 - `SIGINT` and `SIGTERM` trigger graceful shutdown.
 - A sample `systemd` unit is included at [mqtt_schedule.service](E:\Development\mqtt_schedule\deploy\mqtt_schedule.service:1).
 
@@ -152,4 +154,15 @@ or:
 
 ```bash
 MQTT_SCHEDULE_ONLY_DESTINATIONS=242606363309393
+```
+
+For live weather commissioning:
+
+- Put `MQTT_SCHEDULE_OPENWEATHER_API_KEY` and `MQTT_SCHEDULE_TEMPEST_TOKEN` in `/etc/mqtt_schedule/mqtt_schedule.env`.
+- Temporarily shorten `weather_refresh_openweather_seconds` and `weather_refresh_tempest_seconds` in `runtime.json` if you want faster repeated refresh testing.
+- Set `weather_refresh_run_immediately` in `runtime.json` or `MQTT_SCHEDULE_WEATHER_REFRESH_RUN_IMMEDIATELY=true` in the env file if you want refresh jobs to fire as soon as the service starts.
+- For a one-time manual refresh without waiting for service intervals, run:
+
+```bash
+/opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --refresh-weather-now --dry-run
 ```
