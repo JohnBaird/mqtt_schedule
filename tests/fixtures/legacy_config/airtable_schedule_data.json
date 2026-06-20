@@ -1,0 +1,34 @@
+{
+  "records": [
+    {
+      "id": "rec16Vlj0tnqsGfbr",
+      "fields": {
+        "duration_on": 1800,
+        "output-type": ["output-irrigation"],
+        "enabled": true,
+        "seasonNames": ["All_seasons"],
+        "end_time": 43200,
+        "day_of_week": ["Every_day"],
+        "zoneNumber": ["Zone-8"],
+        "start_time": 41400,
+        "groupSelect": ["Group-A"],
+        "zone_category": "Irrigation"
+      }
+    },
+    {
+      "id": "recOzpH4BnL9u8mXq",
+      "fields": {
+        "duration_on": 0,
+        "output-type": ["output-general"],
+        "enabled": true,
+        "seasonNames": ["All_seasons"],
+        "end_time": 0,
+        "day_of_week": ["Every_day"],
+        "zoneNumber": ["Zone-16"],
+        "start_time": 0,
+        "groupSelect": ["Group-A", "Group-B", "Group-C"],
+        "zone_category": "Sunset"
+      }
+    }
+  ]
+}

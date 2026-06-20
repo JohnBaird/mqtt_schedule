@@ -1,0 +1,14 @@
+{
+  "records": [
+    {
+      "id": "rec3NIxfPRvPvoWkT",
+      "fields": {
+        "ipAddress": "192.168.1.170",
+        "enabled": true,
+        "groupSelect": ["Group-A"],
+        "Name": "Controller_1",
+        "nameLink": "242606363309393"
+      }
+    }
+  ]
+}

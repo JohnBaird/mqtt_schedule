@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mqtt-schedule"
+version = "0.1.0"
+description = "Maintainable rewrite of the legacy MQTT irrigation scheduler"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "paho-mqtt>=1.6,<2.0",
+  "pymongo>=4.6,<5.0",
+  "requests>=2.31,<3.0",
+  "tzdata>=2025.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0,<9.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

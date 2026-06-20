@@ -1,0 +1,20 @@
+[Unit]
+Description=MQTT Schedule Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mqttschedule
+Group=mqttschedule
+WorkingDirectory=/opt/mqtt_schedule
+EnvironmentFile=-/etc/mqtt_schedule/mqtt_schedule.env
+Environment=MQTT_SCHEDULE_DATA_DIR=/etc/mqtt_schedule
+Environment=MQTT_SCHEDULE_STATE_DIR=/var/lib/mqtt_schedule
+ExecStart=/opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --service
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

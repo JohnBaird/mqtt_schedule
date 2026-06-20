@@ -1,0 +1,14 @@
+{
+  "this_file": {
+    "endpoint": "weather",
+    "fetched_at_utc": "2026-06-20T13:00:03.647676+00:00",
+    "latency_ms": 288
+  },
+  "data": {
+    "sys": {
+      "sunrise": 1781951323,
+      "sunset": 1782003005
+    },
+    "timezone": -14400
+  }
+}

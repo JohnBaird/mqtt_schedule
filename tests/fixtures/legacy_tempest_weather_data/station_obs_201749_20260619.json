@@ -1,0 +1,16 @@
+{
+  "station_id": 201749,
+  "timezone": "America/New_York",
+  "station_units": {
+    "units_precip": "in"
+  },
+  "obs": [
+    {
+      "timestamp": 1781841566,
+      "precip": 0.0,
+      "precip_accum_last_1hr": 1.346491,
+      "precip_accum_local_day": 19.796006,
+      "precip_accum_local_yesterday_final": 0.742068
+    }
+  ]
+}
