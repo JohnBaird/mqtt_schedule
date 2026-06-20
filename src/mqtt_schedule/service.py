@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import signal
 import threading
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ class ServiceRunner:
         self.periodic_jobs = periodic_jobs or []
         self._stop_event = threading.Event()
         self._last_tick_key: str | None = None
+        self.logger = logging.getLogger("mqtt_schedule.service")
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -53,12 +55,14 @@ class ServiceRunner:
     def run_forever(self) -> int:
         if self.config.run_immediately:
             now = self.clock()
+            self.logger.info("service_tick trigger=run_immediately at=%s", now.isoformat())
             self._run_tick(now)
 
         while not self._stop_event.is_set():
             now = self.clock()
             fire_key = self._minute_key(now)
             if fire_key != self._last_tick_key and self._is_minute_boundary(now):
+                self.logger.info("service_tick trigger=minute_boundary at=%s", now.isoformat())
                 self._run_tick(now)
 
             self._run_periodic_jobs(now)
@@ -97,8 +101,14 @@ class ServiceRunner:
     @staticmethod
     def _run_periodic_job(job: PeriodicJob) -> None:
         try:
+            logging.getLogger("mqtt_schedule.service").info("periodic_job_start job_id=%s", job.job_id)
             job.fn()
+            logging.getLogger("mqtt_schedule.service").info("periodic_job_complete job_id=%s", job.job_id)
         except Exception:
+            logging.getLogger("mqtt_schedule.service").exception(
+                "periodic_job_failed job_id=%s",
+                job.job_id,
+            )
             return
 
 

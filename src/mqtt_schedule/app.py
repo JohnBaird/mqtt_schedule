@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 from typing import Protocol
 
 from .domain import ControllerTarget, DueCommand, IrrigationDecision, ScheduleEntry, SunTimes
@@ -57,6 +58,7 @@ class SchedulerApplication:
         self.irrigation_policy = irrigation_policy
         self.publisher = publisher
         self.evaluator = evaluator
+        self.logger = logging.getLogger("mqtt_schedule.app")
 
     def run_schedule_tick(self, now: datetime) -> RuntimeSnapshot:
         schedules = self.schedule_repository.list_schedules()
@@ -74,6 +76,12 @@ class SchedulerApplication:
         commands = [item.command for item in evaluation_results if item.command is not None]
         for command in commands:
             self.publisher.publish_due_command(command)
+
+        self.logger.info(
+            "schedule_tick_complete evaluated_at=%s command_count=%s",
+            now.isoformat(),
+            len(commands),
+        )
 
         return RuntimeSnapshot(
             evaluated_at=now,

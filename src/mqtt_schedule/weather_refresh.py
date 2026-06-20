@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -10,6 +11,9 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import requests
+
+
+logger = logging.getLogger("mqtt_schedule.weather_refresh")
 
 
 class RefreshJob:
@@ -34,8 +38,14 @@ class OpenWeatherRefresher(RefreshJob):
         self.settings = settings
 
     def refresh(self) -> None:
+        logger.info(
+            "openweather_refresh_start current_file=%s forecast_file=%s",
+            self.settings.current_file,
+            self.settings.forecast_file,
+        )
         self._refresh_endpoint("weather", self.settings.current_file)
         self._refresh_endpoint("forecast", self.settings.forecast_file)
+        logger.info("openweather_refresh_complete")
 
     def _refresh_endpoint(self, endpoint: str, target_file: Path) -> None:
         params = {
@@ -57,6 +67,12 @@ class OpenWeatherRefresher(RefreshJob):
             "data": response.json(),
         }
         _write_json(target_file, payload)
+        logger.info(
+            "openweather_endpoint_refreshed endpoint=%s target_file=%s latency_ms=%s",
+            endpoint,
+            target_file,
+            payload["this_file"]["latency_ms"],
+        )
 
 
 @dataclass(frozen=True)
@@ -76,6 +92,7 @@ class TempestRefresher(RefreshJob):
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
 
     def refresh(self) -> None:
+        logger.info("tempest_refresh_start data_dir=%s", self.settings.data_dir)
         stations = self._get_json(f"{self.settings.base_url.rstrip('/')}/stations?{urlencode({'token': self.settings.token})}")
         self._write_current_and_daily_snapshot("station_meta.json", stations)
 
@@ -96,6 +113,7 @@ class TempestRefresher(RefreshJob):
                 self._write_current_and_daily_snapshot(f"device_obs_{device_id}.json", device_obs)
 
         _write_json(self.settings.data_dir / "last_run.json", {"epoch": int(time())})
+        logger.info("tempest_refresh_complete data_dir=%s", self.settings.data_dir)
 
     def _get_json(self, url: str) -> dict:
         req = Request(url, method="GET")

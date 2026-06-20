@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import logging
 
 from .airtable_repositories import FileControllerRepository, FileScheduleRepository
 from .app import ControllerRepository, FilteredControllerRepository, SchedulerApplication
@@ -16,6 +17,10 @@ from .weather_refresh import OpenWeatherRefreshSettings, OpenWeatherRefresher, T
 
 
 def main() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     parser = argparse.ArgumentParser(description="Run one mqtt_schedule scheduler tick.")
     parser.add_argument("--config", help="Path to runtime JSON config file.")
     parser.add_argument("--now", help="Override current timestamp in ISO format.")
@@ -77,6 +82,19 @@ def main() -> int:
         settings=settings,
         cli_only_destinations=args.only_destination,
     )
+    allowed_destinations = resolve_allowed_destinations(
+        configured_destinations=settings.commissioning_only_destinations,
+        cli_destinations=args.only_destination,
+    )
+    logger = logging.getLogger("mqtt_schedule.cli")
+    if allowed_destinations:
+        logger.info(
+            "commissioning_filter_active destination_count=%s destinations=%s",
+            len(allowed_destinations),
+            ",".join(sorted(allowed_destinations)),
+        )
+    else:
+        logger.info("commissioning_filter_inactive")
 
     app = SchedulerApplication(
         schedule_repository=FileScheduleRepository(settings.schedule_file),

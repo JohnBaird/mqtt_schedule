@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 
 from mqtt_schedule.service import PeriodicJob, ServiceConfig, ServiceRunner, seconds_until_next_minute
 
@@ -118,3 +119,48 @@ def test_service_runner_executes_periodic_jobs() -> None:
     runner.run_forever()
 
     assert job_calls == ["refresh", "refresh"]
+
+
+def test_service_runner_logs_tick_and_periodic_job(caplog) -> None:
+    caplog.set_level(logging.INFO)
+    app = FakeApplication()
+    job_calls: list[str] = []
+    moments = iter(
+        [
+            datetime(2026, 6, 20, 11, 44, 59),
+            datetime(2026, 6, 20, 11, 45, 0),
+            datetime(2026, 6, 20, 11, 45, 2),
+        ]
+    )
+
+    runner: ServiceRunner | None = None
+
+    def clock() -> datetime:
+        nonlocal runner
+        try:
+            return next(moments)
+        except StopIteration:
+            assert runner is not None
+            runner.stop()
+            return datetime(2026, 6, 20, 11, 45, 3)
+
+    runner = ServiceRunner(
+        app,
+        clock=clock,
+        sleeper=lambda _: None,
+        periodic_jobs=[
+            PeriodicJob(
+                job_id="refresh",
+                interval_seconds=2,
+                fn=lambda: job_calls.append("refresh"),
+                run_immediately=True,
+            )
+        ],
+    )
+
+    runner.run_forever()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("service_tick trigger=minute_boundary" in message for message in messages)
+    assert any("periodic_job_start job_id=refresh" in message for message in messages)
+    assert any("periodic_job_complete job_id=refresh" in message for message in messages)
