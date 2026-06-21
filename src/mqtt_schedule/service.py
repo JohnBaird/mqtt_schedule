@@ -5,7 +5,6 @@ import signal
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from time import sleep
 from typing import Callable
 
 from .app import SchedulerApplication
@@ -13,6 +12,10 @@ from .app import SchedulerApplication
 
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
+
+
+class ServiceShutdown(BaseException):
+    """Raised to break out of blocking service work on SIGINT/SIGTERM."""
 
 
 @dataclass(frozen=True)
@@ -42,7 +45,7 @@ class ServiceRunner:
     ) -> None:
         self.application = application
         self.clock = clock or datetime.now
-        self.sleeper = sleeper or sleep
+        self._custom_sleeper = sleeper
         self.config = config or ServiceConfig()
         self.periodic_jobs = periodic_jobs or []
         self._stop_event = threading.Event()
@@ -53,21 +56,23 @@ class ServiceRunner:
         self._stop_event.set()
 
     def run_forever(self) -> int:
-        if self.config.run_immediately:
-            now = self.clock()
-            self.logger.info("service_tick trigger=run_immediately at=%s", now.isoformat())
-            self._run_tick(now)
-
-        while not self._stop_event.is_set():
-            now = self.clock()
-            fire_key = self._minute_key(now)
-            if fire_key != self._last_tick_key and self._is_minute_boundary(now):
-                self.logger.info("service_tick trigger=minute_boundary at=%s", now.isoformat())
+        try:
+            if self.config.run_immediately:
+                now = self.clock()
+                self.logger.info("service_tick trigger=run_immediately at=%s", now.isoformat())
                 self._run_tick(now)
 
-            self._run_periodic_jobs(now)
+            while not self._stop_event.is_set():
+                now = self.clock()
+                fire_key = self._minute_key(now)
+                if fire_key != self._last_tick_key and self._is_minute_boundary(now):
+                    self.logger.info("service_tick trigger=minute_boundary at=%s", now.isoformat())
+                    self._run_tick(now)
 
-            self.sleeper(self.config.poll_interval_seconds)
+                self._run_periodic_jobs(now)
+                self._sleep_until_next_poll()
+        except ServiceShutdown:
+            self.logger.info("service_shutdown signal_received=true")
 
         return 0
 
@@ -86,6 +91,8 @@ class ServiceRunner:
     def _run_periodic_jobs(self, now: datetime) -> None:
         now_epoch = now.timestamp()
         for job in self.periodic_jobs:
+            if self._stop_event.is_set():
+                return
             if job.last_run_epoch is None:
                 if job.run_immediately:
                     self._run_periodic_job(job)
@@ -97,6 +104,12 @@ class ServiceRunner:
             if (now_epoch - job.last_run_epoch) >= job.interval_seconds:
                 self._run_periodic_job(job)
                 job.last_run_epoch = now_epoch
+
+    def _sleep_until_next_poll(self) -> None:
+        if self._custom_sleeper is not None:
+            self._custom_sleeper(self.config.poll_interval_seconds)
+            return
+        self._stop_event.wait(self.config.poll_interval_seconds)
 
     @staticmethod
     def _run_periodic_job(job: PeriodicJob) -> None:
@@ -122,6 +135,7 @@ class SignalAwareService:
 
     def _handle_signal(self, signum, frame) -> None:
         self.runner.stop()
+        raise ServiceShutdown()
 
 
 def seconds_until_next_minute(now: datetime) -> float:
