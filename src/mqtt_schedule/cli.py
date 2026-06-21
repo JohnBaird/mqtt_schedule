@@ -135,10 +135,10 @@ def main() -> int:
             )
             signals = SignalAwareService(runner)
             signals.install_signal_handlers()
-            print(
-                "service_start "
-                f"now={now.isoformat()} "
-                f"seconds_until_next_minute={seconds_until_next_minute(now):.3f}"
+            logger.info(
+                "service_start now=%s seconds_until_next_minute=%.3f",
+                now.isoformat(),
+                seconds_until_next_minute(now),
             )
             return runner.run_forever()
 
