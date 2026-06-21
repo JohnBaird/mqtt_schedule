@@ -129,6 +129,13 @@ For the first Linux-style tests, the intended flow is:
 sudo bash /home/john/mqtt_schedule_temp/deploy/install_linux.sh /home/john/mqtt_schedule_temp
 ```
 
+The installer intentionally:
+
+- excludes staging-only directories such as `.venv` and `.pytest_cache`
+- creates a fresh `/opt/mqtt_schedule/.venv`
+- prepares writable weather output paths for the `mqttschedule` service user
+- keeps `runtime.json` root-owned while allowing the service to write weather refresh temp files under `/etc/mqtt_schedule`
+
 3. Edit `/etc/mqtt_schedule/runtime.json`.
 4. Edit `/etc/mqtt_schedule/mqtt_schedule.env`.
 5. Place or sync the Airtable export files into `/etc/mqtt_schedule/`.
