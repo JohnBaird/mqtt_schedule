@@ -150,6 +150,7 @@ Current inbound MQTT behavior:
 - `stc_online_status_request` is answered with `stc_online_status_response`.
 - `stc_input_status_request` is answered with `stc_input_status_response`.
 - `stc_online_status_response` and `stc_input_status_response` are consumed and logged.
+- `stc_online_status_response` also updates the file-backed controller state at `controller_status_file`.
 - `stc_temperature_response` is consumed, logged, and appended to the legacy-style temperature CSV.
 - `stc_config_file_response` is consumed and its `sysConfig` payload is written to `clients_sysinfo_dir`.
 - `stc_transaction_response` is consumed, logged, and appended to the legacy-style transaction CSV.
@@ -168,6 +169,11 @@ CSV reporting settings:
 - `csv_backup_dir` defaults to `/var/lib/mqtt_schedule/csv_backup`
 - `transaction_csv_max_entries` and `temperature_csv_max_entries` default to `5000`
 - `transaction_csv_backup_count` and `temperature_csv_backup_count` default to `10`
+
+Controller status settings:
+
+- `controller_status_file` defaults to `/var/lib/mqtt_schedule/controller_status.json`
+- each inbound `stc_online_status_response` updates that file with the controller's last seen timestamp, response, reason, and restart/config-sync markers
 
 ## MQTT Compatibility
 

@@ -16,6 +16,7 @@ class RuntimeSettings:
     openweather_forecast_file: Path
     tempest_data_dir: Path
     device_serial_file: Path
+    controller_status_file: Path = Path("/var/lib/mqtt_schedule/controller_status.json")
     transaction_csv_file: Path = Path("/var/lib/mqtt_schedule/transactions.csv")
     temperature_csv_file: Path = Path("/var/lib/mqtt_schedule/temperature.csv")
     csv_backup_dir: Path = Path("/var/lib/mqtt_schedule/csv_backup")
@@ -103,6 +104,12 @@ class RuntimeSettings:
                 str(state_dir / "csv_backup"),
             )
         )
+        controller_status_file = Path(
+            os.environ.get(
+                "MQTT_SCHEDULE_CONTROLLER_STATUS_FILE",
+                str(state_dir / "controller_status.json"),
+            )
+        )
         openweather_current_file = Path(
             os.environ.get(
                 "MQTT_SCHEDULE_OPENWEATHER_CURRENT_FILE",
@@ -148,6 +155,7 @@ class RuntimeSettings:
                     str(state_dir / "device_serial.txt"),
                 )
             ),
+            controller_status_file=controller_status_file,
             commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS"),
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE"),
             tempest_station_id=int(os.environ.get("MQTT_SCHEDULE_TEMPEST_STATION_ID", "201749")),
@@ -216,6 +224,7 @@ class RuntimeSettings:
             openweather_forecast_file=Path(data["openweather_forecast_file"]),
             tempest_data_dir=Path(data["tempest_data_dir"]),
             device_serial_file=Path(data.get("device_serial_file", "/var/lib/mqtt_schedule/device_serial.txt")),
+            controller_status_file=Path(data.get("controller_status_file", "/var/lib/mqtt_schedule/controller_status.json")),
             commissioning_only_destinations=tuple(data.get("commissioning_only_destinations", [])),
             source_serial_override=data.get("source_serial_override"),
             tempest_station_id=int(data.get("tempest_station_id", 201749)),
@@ -281,6 +290,7 @@ class RuntimeSettings:
             openweather_forecast_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_FORECAST_FILE", self.openweather_forecast_file),
             tempest_data_dir=_env_path("MQTT_SCHEDULE_TEMPEST_DATA_DIR", self.tempest_data_dir),
             device_serial_file=_env_path("MQTT_SCHEDULE_DEVICE_SERIAL_FILE", self.device_serial_file),
+            controller_status_file=_env_path("MQTT_SCHEDULE_CONTROLLER_STATUS_FILE", self.controller_status_file),
             commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS") or self.commissioning_only_destinations,
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE", self.source_serial_override),
             tempest_station_id=_env_int("MQTT_SCHEDULE_TEMPEST_STATION_ID", self.tempest_station_id),

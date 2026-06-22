@@ -10,6 +10,7 @@
   "openweather_forecast_file": "/etc/mqtt_schedule/ow_records_forecast.json",
   "tempest_data_dir": "/etc/mqtt_schedule/tempest_weather_data",
   "device_serial_file": "/var/lib/mqtt_schedule/device_serial.txt",
+  "controller_status_file": "/var/lib/mqtt_schedule/controller_status.json",
   "commissioning_only_destinations": [],
   "airtable_base_url": "https://api.airtable.com/v0",
   "airtable_base_id": "appUSmE6ODKXkqLh3",

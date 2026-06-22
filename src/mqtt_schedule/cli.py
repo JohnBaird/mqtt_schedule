@@ -16,6 +16,7 @@ from .airtable_repositories import (
 from .access_control import AccessDecisionService, FileAccessUserRepository
 from .app import ControllerRepository, FilteredControllerRepository, SchedulerApplication
 from .airtable_sync import AirtableSyncService
+from .controller_status import ControllerStatusStore
 from .csv_reporting import LegacyCsvRecorder
 from .hostinfo import HostInfoProvider
 from .identity import DeviceIdentity, DeviceIdentitySettings
@@ -114,11 +115,13 @@ def main() -> int:
         client = None
     else:
         csv_recorder = LegacyCsvRecorder.from_settings(settings)
+        controller_status_store = ControllerStatusStore(settings.controller_status_file)
         access_request_handler = AccessRequestMessageHandler(
             settings=settings,
             maintenance_publisher=MQTTMaintenancePublisher(encoder=encoder, client=None),
             source_serial=source_serial,
             csv_recorder=csv_recorder,
+            controller_status_store=controller_status_store,
         )
         subscriptions.extend(access_request_handler.subscription_topics())
         for topic in access_request_handler.subscription_topics():

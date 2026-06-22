@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from mqtt_schedule.controller_status import ControllerStatusStore
 from mqtt_schedule.csv_reporting import LegacyCsvRecorder
 from mqtt_schedule.inbound import AccessRequestMessageHandler
 from mqtt_schedule.mqtt_adapter import (
@@ -430,6 +431,7 @@ def test_online_status_response_handler_consumes_legacy_payload(tmp_path: Path, 
         settings=settings,
         maintenance_publisher=publisher,
         source_serial="281261212083555",
+        controller_status_store=ControllerStatusStore(tmp_path / "controller_status.json"),
     )
 
     caplog.set_level("INFO")
@@ -444,6 +446,10 @@ def test_online_status_response_handler_consumes_legacy_payload(tmp_path: Path, 
     assert "online_status_response_handled" in caplog.text
     assert "response=online" in caplog.text
     assert "reason=requested" in caplog.text
+    status_payload = json.loads((tmp_path / "controller_status.json").read_text(encoding="utf-8"))
+    assert status_payload["controllers"]["242606363309393"]["last_response"] == "online"
+    assert status_payload["controllers"]["242606363309393"]["last_reason"] == "requested"
+    assert status_payload["controllers"]["242606363309393"]["online"] is True
 
 
 def test_online_status_response_handler_requests_config_after_restart(tmp_path: Path, caplog) -> None:
@@ -475,6 +481,7 @@ def test_online_status_response_handler_requests_config_after_restart(tmp_path: 
         settings=settings,
         maintenance_publisher=publisher,
         source_serial="281261212083555",
+        controller_status_store=ControllerStatusStore(tmp_path / "controller_status.json"),
     )
 
     caplog.set_level("INFO")
@@ -494,6 +501,13 @@ def test_online_status_response_handler_requests_config_after_restart(tmp_path: 
     payload = json.loads(client.published[0][1])
     assert payload["hostName"] == ""
     assert payload["ipAddress"] == ""
+    status_payload = json.loads((tmp_path / "controller_status.json").read_text(encoding="utf-8"))
+    controller_status = status_payload["controllers"]["242606363309393"]
+    assert controller_status["last_response"] == "online"
+    assert controller_status["last_reason"] == "restarted"
+    assert controller_status["online"] is True
+    assert "last_restart_at" in controller_status
+    assert "last_config_sync_request_at" in controller_status
 
 
 def test_input_status_response_handler_consumes_legacy_payload(tmp_path: Path, caplog) -> None:

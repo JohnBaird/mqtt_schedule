@@ -6,6 +6,7 @@ from datetime import datetime
 from time import time
 
 from .access_control import AccessDecisionService, FileAccessUserRepository
+from .controller_status import ControllerStatusStore, ControllerStatusUpdate
 from .csv_reporting import LegacyCsvRecorder
 from .domain import AccessDecision, AccessRequest
 from .mqtt_adapter import MQTTInboundMessage, MQTTMaintenancePublisher, SPTopic
@@ -20,11 +21,13 @@ class AccessRequestMessageHandler:
         maintenance_publisher: MQTTMaintenancePublisher,
         source_serial: str,
         csv_recorder: LegacyCsvRecorder | None = None,
+        controller_status_store: ControllerStatusStore | None = None,
     ) -> None:
         self.settings = settings
         self.maintenance_publisher = maintenance_publisher
         self.source_serial = source_serial
         self.csv_recorder = csv_recorder
+        self.controller_status_store = controller_status_store
         self.logger = logging.getLogger("mqtt_schedule.inbound")
 
     def subscription_topics(self) -> list[str]:
@@ -151,13 +154,25 @@ class AccessRequestMessageHandler:
 
         response = _payload_str_or_none(payload.get("response"))
         reason = _payload_str_or_none(payload.get("reason"))
+        config_sync_requested = False
         if reason == "restarted":
             self.maintenance_publisher.publish_config_file_request([parsed_topic.source_serial])
+            config_sync_requested = True
             self.logger.info(
                 "config_file_request_triggered source_serial=%s destination_serial=%s reason=%s",
                 parsed_topic.source_serial,
                 parsed_topic.destination_serial,
                 reason,
+            )
+        if self.controller_status_store is not None:
+            self.controller_status_store.record_online_status(
+                ControllerStatusUpdate(
+                    source_serial=parsed_topic.source_serial,
+                    response=response,
+                    reason=reason,
+                    seen_at=datetime.now(),
+                    config_sync_requested=config_sync_requested,
+                )
             )
         self.logger.info(
             "online_status_response_handled source_serial=%s destination_serial=%s response=%s reason=%s",
