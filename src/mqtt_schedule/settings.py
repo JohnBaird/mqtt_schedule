@@ -16,6 +16,9 @@ class RuntimeSettings:
     openweather_forecast_file: Path
     tempest_data_dir: Path
     device_serial_file: Path
+    transaction_csv_file: Path = Path("/var/lib/mqtt_schedule/transactions.csv")
+    temperature_csv_file: Path = Path("/var/lib/mqtt_schedule/temperature.csv")
+    csv_backup_dir: Path = Path("/var/lib/mqtt_schedule/csv_backup")
     commissioning_only_destinations: tuple[str, ...] = ()
     source_serial_override: str | None = None
     tempest_station_id: int = 201749
@@ -50,6 +53,10 @@ class RuntimeSettings:
     program_name: str = "mqtt_schedule"
     program_version: str = "0.1.0"
     access_groups: tuple[str, ...] = ()
+    transaction_csv_max_entries: int = 5000
+    transaction_csv_backup_count: int = 10
+    temperature_csv_max_entries: int = 5000
+    temperature_csv_backup_count: int = 10
     rain_now_block_mm: float = 2.0
     rain_24h_block_mm: float = 5.0
     rain_48h_block_mm: float = 8.0
@@ -70,6 +77,24 @@ class RuntimeSettings:
             os.environ.get(
                 "MQTT_SCHEDULE_CONTROLLER_FILE",
                 str(base_dir / "airtable_config_data.json"),
+            )
+        )
+        transaction_csv_file = Path(
+            os.environ.get(
+                "MQTT_SCHEDULE_TRANSACTION_CSV_FILE",
+                str(state_dir / "transactions.csv"),
+            )
+        )
+        temperature_csv_file = Path(
+            os.environ.get(
+                "MQTT_SCHEDULE_TEMPERATURE_CSV_FILE",
+                str(state_dir / "temperature.csv"),
+            )
+        )
+        csv_backup_dir = Path(
+            os.environ.get(
+                "MQTT_SCHEDULE_CSV_BACKUP_DIR",
+                str(state_dir / "csv_backup"),
             )
         )
         openweather_current_file = Path(
@@ -105,6 +130,9 @@ class RuntimeSettings:
                     str(base_dir / "clients_sysinfo"),
                 )
             ),
+            transaction_csv_file=transaction_csv_file,
+            temperature_csv_file=temperature_csv_file,
+            csv_backup_dir=csv_backup_dir,
             openweather_current_file=openweather_current_file,
             openweather_forecast_file=openweather_forecast_file,
             tempest_data_dir=tempest_data_dir,
@@ -148,6 +176,10 @@ class RuntimeSettings:
             program_name=os.environ.get("MQTT_SCHEDULE_PROGRAM_NAME", "mqtt_schedule"),
             program_version=os.environ.get("MQTT_SCHEDULE_PROGRAM_VERSION", "0.1.0"),
             access_groups=_env_csv("MQTT_SCHEDULE_ACCESS_GROUPS"),
+            transaction_csv_max_entries=int(os.environ.get("MQTT_SCHEDULE_TRANSACTION_CSV_MAX_ENTRIES", "5000")),
+            transaction_csv_backup_count=int(os.environ.get("MQTT_SCHEDULE_TRANSACTION_CSV_BACKUP_COUNT", "10")),
+            temperature_csv_max_entries=int(os.environ.get("MQTT_SCHEDULE_TEMPERATURE_CSV_MAX_ENTRIES", "5000")),
+            temperature_csv_backup_count=int(os.environ.get("MQTT_SCHEDULE_TEMPERATURE_CSV_BACKUP_COUNT", "10")),
             rain_now_block_mm=float(os.environ.get("MQTT_SCHEDULE_RAIN_NOW_BLOCK_MM", "2.0")),
             rain_24h_block_mm=float(os.environ.get("MQTT_SCHEDULE_RAIN_24H_BLOCK_MM", "5.0")),
             rain_48h_block_mm=float(os.environ.get("MQTT_SCHEDULE_RAIN_48H_BLOCK_MM", "8.0")),
@@ -165,6 +197,9 @@ class RuntimeSettings:
             controller_file=Path(data["controller_file"]),
             access_users_file=Path(data.get("access_users_file", "/etc/mqtt_schedule/airtable_access_users.json")),
             clients_sysinfo_dir=Path(data.get("clients_sysinfo_dir", "/etc/mqtt_schedule/clients_sysinfo")),
+            transaction_csv_file=Path(data.get("transaction_csv_file", "/var/lib/mqtt_schedule/transactions.csv")),
+            temperature_csv_file=Path(data.get("temperature_csv_file", "/var/lib/mqtt_schedule/temperature.csv")),
+            csv_backup_dir=Path(data.get("csv_backup_dir", "/var/lib/mqtt_schedule/csv_backup")),
             openweather_current_file=Path(data["openweather_current_file"]),
             openweather_forecast_file=Path(data["openweather_forecast_file"]),
             tempest_data_dir=Path(data["tempest_data_dir"]),
@@ -203,6 +238,10 @@ class RuntimeSettings:
             program_name=data.get("program_name", "mqtt_schedule"),
             program_version=data.get("program_version", "0.1.0"),
             access_groups=tuple(data.get("access_groups", [])),
+            transaction_csv_max_entries=int(data.get("transaction_csv_max_entries", 5000)),
+            transaction_csv_backup_count=int(data.get("transaction_csv_backup_count", 10)),
+            temperature_csv_max_entries=int(data.get("temperature_csv_max_entries", 5000)),
+            temperature_csv_backup_count=int(data.get("temperature_csv_backup_count", 10)),
             rain_now_block_mm=float(data.get("rain_now_block_mm", 2.0)),
             rain_24h_block_mm=float(data.get("rain_24h_block_mm", 5.0)),
             rain_48h_block_mm=float(data.get("rain_48h_block_mm", 8.0)),
@@ -217,6 +256,9 @@ class RuntimeSettings:
             controller_file=_env_path("MQTT_SCHEDULE_CONTROLLER_FILE", self.controller_file),
             access_users_file=_env_path("MQTT_SCHEDULE_ACCESS_USERS_FILE", self.access_users_file),
             clients_sysinfo_dir=_env_path("MQTT_SCHEDULE_CLIENTS_SYSINFO_DIR", self.clients_sysinfo_dir),
+            transaction_csv_file=_env_path("MQTT_SCHEDULE_TRANSACTION_CSV_FILE", self.transaction_csv_file),
+            temperature_csv_file=_env_path("MQTT_SCHEDULE_TEMPERATURE_CSV_FILE", self.temperature_csv_file),
+            csv_backup_dir=_env_path("MQTT_SCHEDULE_CSV_BACKUP_DIR", self.csv_backup_dir),
             openweather_current_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_CURRENT_FILE", self.openweather_current_file),
             openweather_forecast_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_FORECAST_FILE", self.openweather_forecast_file),
             tempest_data_dir=_env_path("MQTT_SCHEDULE_TEMPEST_DATA_DIR", self.tempest_data_dir),
@@ -282,6 +324,22 @@ class RuntimeSettings:
             program_name=os.environ.get("MQTT_SCHEDULE_PROGRAM_NAME", self.program_name),
             program_version=os.environ.get("MQTT_SCHEDULE_PROGRAM_VERSION", self.program_version),
             access_groups=_env_csv("MQTT_SCHEDULE_ACCESS_GROUPS") or self.access_groups,
+            transaction_csv_max_entries=_env_int(
+                "MQTT_SCHEDULE_TRANSACTION_CSV_MAX_ENTRIES",
+                self.transaction_csv_max_entries,
+            ),
+            transaction_csv_backup_count=_env_int(
+                "MQTT_SCHEDULE_TRANSACTION_CSV_BACKUP_COUNT",
+                self.transaction_csv_backup_count,
+            ),
+            temperature_csv_max_entries=_env_int(
+                "MQTT_SCHEDULE_TEMPERATURE_CSV_MAX_ENTRIES",
+                self.temperature_csv_max_entries,
+            ),
+            temperature_csv_backup_count=_env_int(
+                "MQTT_SCHEDULE_TEMPERATURE_CSV_BACKUP_COUNT",
+                self.temperature_csv_backup_count,
+            ),
             rain_now_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_NOW_BLOCK_MM", self.rain_now_block_mm),
             rain_24h_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_24H_BLOCK_MM", self.rain_24h_block_mm),
             rain_48h_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_48H_BLOCK_MM", self.rain_48h_block_mm),

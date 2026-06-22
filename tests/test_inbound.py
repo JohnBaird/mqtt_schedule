@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from mqtt_schedule.csv_reporting import LegacyCsvRecorder
 from mqtt_schedule.inbound import AccessRequestMessageHandler
 from mqtt_schedule.mqtt_adapter import (
     MQTTBrokerSettings,
@@ -426,6 +427,9 @@ def test_temperature_response_handler_consumes_legacy_payload(tmp_path: Path, ca
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
         clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        transaction_csv_file=tmp_path / "transactions.csv",
+        temperature_csv_file=tmp_path / "temperature.csv",
+        csv_backup_dir=tmp_path / "csv_backup",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -447,6 +451,7 @@ def test_temperature_response_handler_consumes_legacy_payload(tmp_path: Path, ca
         settings=settings,
         maintenance_publisher=publisher,
         source_serial="281261212083555",
+        csv_recorder=LegacyCsvRecorder.from_settings(settings),
     )
 
     caplog.set_level("INFO")
@@ -455,6 +460,10 @@ def test_temperature_response_handler_consumes_legacy_payload(tmp_path: Path, ca
             topic="SPV1.0/irrigation/stc_temperature_response/242606363309393/281261212083555",
             payload=json.dumps(
                 {
+                    "_iD": "req-1",
+                    "dateTime": "2026-06-22  09:55:37",
+                    "hostName": "raspberrypi",
+                    "ipAddress": "192.168.1.170",
                     "sensorName": "CPU_temp",
                     "sensorValue": 48.2,
                     "temperatureUnits": "degC",
@@ -468,6 +477,9 @@ def test_temperature_response_handler_consumes_legacy_payload(tmp_path: Path, ca
     assert "sensor_name=CPU_temp" in caplog.text
     assert "sensor_value=48.2" in caplog.text
     assert "temperature_units=degC" in caplog.text
+    csv_lines = settings.temperature_csv_file.read_text(encoding="utf-8").splitlines()
+    assert csv_lines[0] == "_iD,dateTime,serialSource,ipAddress,hostName,sensorName,tempValue"
+    assert csv_lines[1] == "req-1,2026-06-22  09:55:37,242606363309393,192.168.1.170,raspberrypi,CPU_temp,48.2"
 
 
 def test_config_file_response_handler_writes_sysinfo_snapshot(tmp_path: Path, caplog) -> None:
@@ -527,6 +539,9 @@ def test_transaction_response_handler_consumes_legacy_payload(tmp_path: Path, ca
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
         clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        transaction_csv_file=tmp_path / "transactions.csv",
+        temperature_csv_file=tmp_path / "temperature.csv",
+        csv_backup_dir=tmp_path / "csv_backup",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -548,6 +563,7 @@ def test_transaction_response_handler_consumes_legacy_payload(tmp_path: Path, ca
         settings=settings,
         maintenance_publisher=publisher,
         source_serial="281261212083555",
+        csv_recorder=LegacyCsvRecorder.from_settings(settings),
     )
 
     caplog.set_level("INFO")
@@ -558,6 +574,7 @@ def test_transaction_response_handler_consumes_legacy_payload(tmp_path: Path, ca
                 {
                     "_iD": "txn-1",
                     "timestamp": 1782136537000,
+                    "dateTime": "2026-06-22  09:55:37",
                     "idNumber": "12345",
                     "UniqueId": "group-a",
                     "fullName": "John Baird",
@@ -572,3 +589,7 @@ def test_transaction_response_handler_consumes_legacy_payload(tmp_path: Path, ca
     assert "id_number=12345" in caplog.text
     assert "unique_id=group-a" in caplog.text
     assert "full_name=John Baird" in caplog.text
+    csv_lines = settings.transaction_csv_file.read_text(encoding="utf-8").splitlines()
+    assert csv_lines[0] == "_iD,latency,dateTime,transactionType,idNumber,UniqueId,fullName,serialSource"
+    assert csv_lines[1].startswith("txn-1,")
+    assert ",2026-06-22  09:55:37,irrigation,12345,group-a,John Baird,242606363309393" in csv_lines[1]

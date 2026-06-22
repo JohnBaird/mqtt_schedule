@@ -13,6 +13,7 @@ from .airtable_repositories import (
 )
 from .access_control import AccessDecisionService, FileAccessUserRepository
 from .app import ControllerRepository, FilteredControllerRepository, SchedulerApplication
+from .csv_reporting import LegacyCsvRecorder
 from .hostinfo import HostInfoProvider
 from .identity import DeviceIdentity, DeviceIdentitySettings
 from .inbound import AccessRequestMessageHandler
@@ -101,10 +102,12 @@ def main() -> int:
         publisher = StdoutCommandPublisher(encoder)
         client = None
     else:
+        csv_recorder = LegacyCsvRecorder.from_settings(settings)
         access_request_handler = AccessRequestMessageHandler(
             settings=settings,
             maintenance_publisher=MQTTMaintenancePublisher(encoder=encoder, client=None),
             source_serial=source_serial,
+            csv_recorder=csv_recorder,
         )
         subscriptions.extend(access_request_handler.subscription_topics())
         for topic in access_request_handler.subscription_topics():

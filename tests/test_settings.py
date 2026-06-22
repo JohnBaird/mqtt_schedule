@@ -12,6 +12,9 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.controller_file.as_posix() == "/etc/mqtt_schedule/airtable_config_data.json"
     assert settings.access_users_file.as_posix() == "/etc/mqtt_schedule/airtable_access_users.json"
     assert settings.clients_sysinfo_dir.as_posix() == "/etc/mqtt_schedule/clients_sysinfo"
+    assert settings.transaction_csv_file.as_posix() == "/var/lib/mqtt_schedule/transactions.csv"
+    assert settings.temperature_csv_file.as_posix() == "/var/lib/mqtt_schedule/temperature.csv"
+    assert settings.csv_backup_dir.as_posix() == "/var/lib/mqtt_schedule/csv_backup"
     assert settings.openweather_current_file.as_posix() == "/etc/mqtt_schedule/ow_records_current.json"
     assert settings.tempest_data_dir.as_posix() == "/etc/mqtt_schedule/tempest_weather_data"
     assert settings.device_serial_file.as_posix() == "/var/lib/mqtt_schedule/device_serial.txt"
@@ -23,6 +26,10 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.mqtt_input_status_request_enabled is True
     assert settings.mqtt_temperature_request_enabled is True
     assert settings.mqtt_temperature_request_seconds == 1200
+    assert settings.transaction_csv_max_entries == 5000
+    assert settings.transaction_csv_backup_count == 10
+    assert settings.temperature_csv_max_entries == 5000
+    assert settings.temperature_csv_backup_count == 10
 
 
 def test_runtime_settings_reads_commissioning_destinations_from_json(tmp_path: Path) -> None:

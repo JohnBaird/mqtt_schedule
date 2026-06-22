@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from time import time
 
 from .access_control import AccessDecisionService, FileAccessUserRepository
+from .csv_reporting import LegacyCsvRecorder
 from .domain import AccessDecision, AccessRequest
 from .mqtt_adapter import MQTTInboundMessage, MQTTMaintenancePublisher, SPTopic
 from .settings import RuntimeSettings
@@ -17,10 +19,12 @@ class AccessRequestMessageHandler:
         settings: RuntimeSettings,
         maintenance_publisher: MQTTMaintenancePublisher,
         source_serial: str,
+        csv_recorder: LegacyCsvRecorder | None = None,
     ) -> None:
         self.settings = settings
         self.maintenance_publisher = maintenance_publisher
         self.source_serial = source_serial
+        self.csv_recorder = csv_recorder
         self.logger = logging.getLogger("mqtt_schedule.inbound")
 
     def subscription_topics(self) -> list[str]:
@@ -212,6 +216,20 @@ class AccessRequestMessageHandler:
         temperature_units = _payload_str_or_none(payload.get("temperatureUnits")) or _payload_str_or_none(
             payload.get("temperature_units")
         )
+        message_id = _payload_str_or_none(payload.get("_iD")) or ""
+        date_time = _payload_str_or_none(payload.get("dateTime")) or ""
+        ip_address = _payload_str_or_none(payload.get("ipAddress")) or ""
+        host_name = _payload_str_or_none(payload.get("hostName")) or ""
+        if self.csv_recorder is not None:
+            self.csv_recorder.record_temperature_response(
+                message_id=message_id,
+                date_time=date_time,
+                source_serial=parsed_topic.source_serial,
+                ip_address=ip_address,
+                host_name=host_name,
+                sensor_name=sensor_name or "",
+                temp_value="" if sensor_value is None else str(sensor_value),
+            )
 
         self.logger.info(
             "temperature_response_handled source_serial=%s destination_serial=%s sensor_name=%s sensor_value=%s temperature_units=%s",
@@ -287,6 +305,20 @@ class AccessRequestMessageHandler:
         unique_id = _payload_str_or_none(payload.get("UniqueId"))
         full_name = _payload_str_or_none(payload.get("fullName"))
         transaction_id = _payload_str_or_none(payload.get("_iD"))
+        date_time = _payload_str_or_none(payload.get("dateTime")) or _legacy_datetime_from_timestamp(
+            payload.get("timestamp")
+        )
+        if self.csv_recorder is not None:
+            self.csv_recorder.record_transaction_response(
+                transaction_id=transaction_id or "",
+                latency=latency_seconds,
+                date_time=date_time,
+                transaction_type=parsed_topic.domain,
+                id_number=id_number or "",
+                unique_id=unique_id or "",
+                full_name=full_name or "",
+                source_serial=parsed_topic.source_serial,
+            )
 
         self.logger.info(
             "transaction_response_handled source_serial=%s destination_serial=%s transaction_id=%s transaction_type=%s id_number=%s unique_id=%s full_name=%s latency_seconds=%s",
@@ -387,6 +419,14 @@ def _latency_seconds_from_timestamp(value: object) -> str:
         current_ms = int(time() * 1000)
         return f"{(current_ms - int(value)) / 1000:.3f}"
     return "not received"
+
+
+def _legacy_datetime_from_timestamp(value: object) -> str:
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(int(value) / 1000).strftime("%Y-%m-%d  %H:%M:%S")
+    return ""
 
 
 def _fallback_reject_decision(request: AccessRequest):

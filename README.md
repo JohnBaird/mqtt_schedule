@@ -47,13 +47,15 @@ This repository currently contains:
   - `stc_input_status_response`
   - `stc_temperature_response`
   - `stc_config_file_response`
+  - `stc_transaction_response`
+- Legacy-compatible CSV reporting for:
+  - `stc_temperature_response`
+  - `stc_transaction_response`
 - File-backed OpenWeather/Tempest refresh jobs for Linux deployment.
 
 Still intentionally incomplete:
 
 - automatic publish trigger for `stc_config_file_request` when a controller reports `reason="restarted"`
-- inbound `stc_transaction_response`
-- CSV parity for temperature and transaction logging
 - MongoDB ingestion/history responsibilities
 - authoritative upstream producer for the Airtable JSON exports
 
@@ -116,6 +118,7 @@ Planned placement for connection information:
 - OpenWeather API key: `mqtt_schedule.env`
 - Tempest token: `mqtt_schedule.env`
 - controller sysinfo snapshots: `clients_sysinfo_dir` in `runtime.json`
+- CSV report paths and rotation settings: `runtime.json`
 - Persisted device identity: `/var/lib/mqtt_schedule/device_serial.txt`
 - Temporary commissioning destination filter: `runtime.json` or `mqtt_schedule.env`
 
@@ -144,9 +147,19 @@ Current inbound MQTT behavior:
 - `stc_access_request` is answered with `stc_access_response`.
 - `stc_online_status_request` is answered with `stc_online_status_response`.
 - `stc_input_status_request` is answered with `stc_input_status_response`.
-- `stc_online_status_response`, `stc_input_status_response`, and `stc_temperature_response` are consumed and logged.
+- `stc_online_status_response` and `stc_input_status_response` are consumed and logged.
+- `stc_temperature_response` is consumed, logged, and appended to the legacy-style temperature CSV.
 - `stc_config_file_response` is consumed and its `sysConfig` payload is written to `clients_sysinfo_dir`.
+- `stc_transaction_response` is consumed, logged, and appended to the legacy-style transaction CSV.
 - `stc_config_file_request` is not automatically published yet. The old system published it after `stc_online_status_response` with `reason="restarted"`, and that follow-up is still pending.
+
+CSV reporting settings:
+
+- `transaction_csv_file` defaults to `/var/lib/mqtt_schedule/transactions.csv`
+- `temperature_csv_file` defaults to `/var/lib/mqtt_schedule/temperature.csv`
+- `csv_backup_dir` defaults to `/var/lib/mqtt_schedule/csv_backup`
+- `transaction_csv_max_entries` and `temperature_csv_max_entries` default to `5000`
+- `transaction_csv_backup_count` and `temperature_csv_backup_count` default to `10`
 
 ## MQTT Compatibility
 
