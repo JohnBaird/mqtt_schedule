@@ -92,6 +92,16 @@ class MQTTInboundMessage:
     payload: str
 
 
+@dataclass(frozen=True)
+class AccessResponseRequestContext:
+    source_serial: str
+    pin_code: str | None
+    pin_number: str | None
+    card_number: str | None
+    face_id: str | None
+    request_id: str | None
+
+
 class MQTTCommandEncoder:
     def __init__(self, settings: MQTTBrokerSettings) -> None:
         self.settings = settings
@@ -184,9 +194,12 @@ class MQTTCommandEncoder:
         pin_number: str | None,
         card_number: str | None,
         face_id: str | None,
+        request_id: str | None = None,
         now: datetime | None = None,
     ) -> MQTTCommandMessage:
         payload = self._base_payload(now or datetime.now())
+        if request_id:
+            payload["_iD"] = request_id
         payload.update(
             {
                 "granted": granted,
@@ -205,7 +218,7 @@ class MQTTCommandEncoder:
 
     def encode_access_response_for_request(
         self,
-        request: AccessRequest,
+        request: AccessResponseRequestContext,
         decision: AccessDecision,
         *,
         now: datetime | None = None,
@@ -218,6 +231,7 @@ class MQTTCommandEncoder:
             pin_number=request.pin_number,
             card_number=request.card_number,
             face_id=request.face_id,
+            request_id=request.request_id,
             now=now,
         )
 
@@ -348,7 +362,7 @@ class MQTTMaintenancePublisher:
 
     def publish_access_response_for_request(
         self,
-        request: AccessRequest,
+        request: AccessResponseRequestContext,
         decision: AccessDecision,
         *,
         now: datetime | None = None,

@@ -9,7 +9,7 @@ from .access_control import AccessDecisionService, FileAccessUserRepository
 from .controller_status import ControllerStatusStore, ControllerStatusUpdate
 from .csv_reporting import LegacyCsvRecorder
 from .domain import AccessDecision, AccessRequest
-from .mqtt_adapter import MQTTInboundMessage, MQTTMaintenancePublisher, SPTopic
+from .mqtt_adapter import AccessResponseRequestContext, MQTTInboundMessage, MQTTMaintenancePublisher, SPTopic
 from .settings import RuntimeSettings
 
 
@@ -429,7 +429,17 @@ class AccessRequestMessageHandler:
                 source_serial=request.source_serial,
             )
 
-        self.maintenance_publisher.publish_access_response_for_request(request, decision)
+        self.maintenance_publisher.publish_access_response_for_request(
+            AccessResponseRequestContext(
+                source_serial=request.source_serial,
+                pin_code=request.pin_code,
+                pin_number=request.pin_number,
+                card_number=request.card_number,
+                face_id=request.face_id,
+                request_id=_payload_str_or_none(payload.get("_iD")),
+            ),
+            decision,
+        )
         self.logger.info(
             "access_request_handled source_serial=%s destination_serial=%s granted=%s full_name=%s matched_group=%s matched_credential=%s decision_reason=%s configured_groups=%s",
             request.source_serial,

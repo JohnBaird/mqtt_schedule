@@ -1,8 +1,9 @@
 import json
 from datetime import datetime
 
-from mqtt_schedule.domain import DueCommand
+from mqtt_schedule.domain import AccessDecision, DueCommand
 from mqtt_schedule.mqtt_adapter import (
+    AccessResponseRequestContext,
     MQTTBrokerSettings,
     MQTTCommandEncoder,
     MQTTMaintenancePublisher,
@@ -305,6 +306,37 @@ def test_encode_input_status_response_uses_legacy_topic_shape() -> None:
     )
     assert input_response.payload["inputs_category"] == "Input ports unavailable"
     assert input_response.payload["input_ports"] == 0
+
+
+def test_encode_access_response_for_request_preserves_request_id() -> None:
+    encoder = MQTTCommandEncoder(
+        MQTTBrokerSettings(
+            host="localhost",
+            port=1883,
+            source_serial="281261212083555",
+        )
+    )
+
+    response = encoder.encode_access_response_for_request(
+        AccessResponseRequestContext(
+            source_serial="242606363309393",
+            pin_code=None,
+            pin_number="12345",
+            card_number=None,
+            face_id=None,
+            request_id="req-access-1",
+        ),
+        decision=AccessDecision(
+            granted=True,
+            full_name="John Baird",
+            matched_group="group1",
+            matched_credential="12345",
+            decision_reason="granted",
+        ),
+        now=datetime(2026, 6, 22, 15, 45, 58),
+    )
+
+    assert response.payload["_iD"] == "req-access-1"
 
 
 def test_maintenance_publisher_publishes_config_file_request() -> None:

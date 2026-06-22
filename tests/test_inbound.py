@@ -99,6 +99,7 @@ def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Pa
         "SPV1.0/irrigation/stc_access_response/281261212083555/242606363309393"
     )
     payload = json.loads(client.published[0][1])
+    assert payload["_iD"] == "req-access-1"
     assert payload["granted"] is True
     assert payload["fullName"] == "John Baird"
     assert payload["pinNumber"] == "12345"
@@ -144,11 +145,12 @@ def test_access_request_handler_publishes_reject_for_unknown_credential(tmp_path
     handler.handle_message(
         MQTTInboundMessage(
             topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
-            payload=json.dumps({"pinNumber": "99999"}),
+            payload=json.dumps({"_iD": "req-access-2", "pinNumber": "99999"}),
         )
     )
 
     payload = json.loads(client.published[0][1])
+    assert payload["_iD"] == "req-access-2"
     assert payload["granted"] is False
     assert payload["fullName"] == "Unknown"
     assert payload["pinNumber"] == "99999"

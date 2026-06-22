@@ -21,7 +21,7 @@ from .csv_reporting import LegacyCsvRecorder
 from .hostinfo import HostInfoProvider
 from .identity import DeviceIdentity, DeviceIdentitySettings
 from .inbound import AccessRequestMessageHandler
-from .mqtt_adapter import MQTTBrokerSettings, MQTTCommandEncoder, PahoClientFactory, PahoCommandPublisher, StdoutCommandPublisher
+from .mqtt_adapter import AccessResponseRequestContext, MQTTBrokerSettings, MQTTCommandEncoder, PahoClientFactory, PahoCommandPublisher, StdoutCommandPublisher
 from .mqtt_adapter import MQTTMaintenancePublisher
 from .mqtt_adapter import SPTopic
 from .scheduler import ScheduleEvaluator, SchedulerConfig
@@ -387,7 +387,17 @@ def _handle_access_request(
         access_groups=list(settings.access_groups),
     ).decide(request)
 
-    maintenance_publisher.publish_access_response_for_request(request, decision)
+    maintenance_publisher.publish_access_response_for_request(
+        AccessResponseRequestContext(
+            source_serial=request.source_serial,
+            pin_code=request.pin_code,
+            pin_number=request.pin_number,
+            card_number=request.card_number,
+            face_id=request.face_id,
+            request_id=_payload_str_or_none(payload.get("_iD")),
+        ),
+        decision,
+    )
     print(
         "access_request_result "
         f"source_serial={request.source_serial} "
