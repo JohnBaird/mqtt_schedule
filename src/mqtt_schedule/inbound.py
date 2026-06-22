@@ -35,6 +35,7 @@ class AccessRequestMessageHandler:
         )
 
     def handle_message(self, message: MQTTInboundMessage) -> None:
+        self.logger.info("access_request_message_received topic=%s", message.topic)
         parsed_topic = SPTopic.parse(message.topic)
         if parsed_topic is None:
             self.logger.warning("inbound_message_ignored reason=invalid_topic topic=%s", message.topic)
@@ -71,6 +72,15 @@ class AccessRequestMessageHandler:
             pin_number=_payload_str_or_none(payload.get("pinNumber")),
             card_number=_payload_str_or_none(payload.get("cardNumber")),
             face_id=_payload_str_or_none(payload.get("faceId")),
+        )
+        self.logger.info(
+            "access_request_parsed source_serial=%s destination_serial=%s pin_code_present=%s pin_number_present=%s card_number_present=%s face_id_present=%s",
+            request.source_serial,
+            request.destination_serial,
+            bool(request.pin_code),
+            bool(request.pin_number),
+            bool(request.card_number),
+            bool(request.face_id),
         )
 
         decision = AccessDecisionService(
