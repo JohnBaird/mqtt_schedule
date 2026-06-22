@@ -40,6 +40,9 @@ def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Pa
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
         clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        transaction_csv_file=tmp_path / "transactions.csv",
+        temperature_csv_file=tmp_path / "temperature.csv",
+        csv_backup_dir=tmp_path / "csv_backup",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -65,13 +68,20 @@ def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Pa
         settings=settings,
         maintenance_publisher=publisher,
         source_serial="281261212083555",
+        csv_recorder=LegacyCsvRecorder.from_settings(settings),
     )
 
     caplog.set_level("INFO")
     handler.handle_message(
         MQTTInboundMessage(
             topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
-            payload=json.dumps({"pinNumber": "12345"}),
+            payload=json.dumps(
+                {
+                    "_iD": "req-access-1",
+                    "dateTime": "2026-06-22  15:45:58",
+                    "pinNumber": "12345",
+                }
+            ),
         )
     )
 
@@ -93,6 +103,10 @@ def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Pa
     assert payload["fullName"] == "John Baird"
     assert payload["pinNumber"] == "12345"
     assert "decision_reason=granted" in caplog.text
+    assert settings.transaction_csv_file.exists()
+    csv_lines = settings.transaction_csv_file.read_text(encoding="utf-8").splitlines()
+    assert csv_lines[0] == "_iD,latency,dateTime,transactionType,idNumber,UniqueId,fullName,serialSource"
+    assert csv_lines[1] == "req-access-1,,2026-06-22  15:45:58,irrigation,12345,group1,John Baird,242606363309393"
 
 
 def test_access_request_handler_publishes_reject_for_unknown_credential(tmp_path: Path, caplog) -> None:

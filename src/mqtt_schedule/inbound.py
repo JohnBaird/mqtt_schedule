@@ -417,6 +417,18 @@ class AccessRequestMessageHandler:
             )
             decision = _fallback_reject_decision(request)
 
+        if self.csv_recorder is not None:
+            self.csv_recorder.record_transaction_response(
+                transaction_id=_payload_str_or_none(payload.get("_iD")) or "",
+                latency="",
+                date_time=_payload_str_or_none(payload.get("dateTime")) or "",
+                transaction_type=parsed_topic.domain,
+                id_number=decision.matched_credential or "",
+                unique_id=decision.matched_group or "",
+                full_name=decision.full_name,
+                source_serial=request.source_serial,
+            )
+
         self.maintenance_publisher.publish_access_response_for_request(request, decision)
         self.logger.info(
             "access_request_handled source_serial=%s destination_serial=%s granted=%s full_name=%s matched_group=%s matched_credential=%s decision_reason=%s configured_groups=%s",
