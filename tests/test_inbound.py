@@ -374,6 +374,56 @@ def test_online_status_response_handler_consumes_legacy_payload(tmp_path: Path, 
     assert "reason=requested" in caplog.text
 
 
+def test_online_status_response_handler_requests_config_after_restart(tmp_path: Path, caplog) -> None:
+    access_users_file = tmp_path / "airtable_access_users.json"
+    access_users_file.write_text(json.dumps({"records": []}), encoding="utf-8")
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        access_groups=("group1",),
+    )
+    client = RecordingMQTTClient()
+    publisher = MQTTMaintenancePublisher(
+        encoder=MQTTCommandEncoder(
+            MQTTBrokerSettings(
+                host="localhost",
+                port=1883,
+                source_serial="281261212083555",
+            )
+        ),
+        client=client,
+    )
+    handler = AccessRequestMessageHandler(
+        settings=settings,
+        maintenance_publisher=publisher,
+        source_serial="281261212083555",
+    )
+
+    caplog.set_level("INFO")
+    handler.handle_message(
+        MQTTInboundMessage(
+            topic="SPV1.0/irrigation/stc_online_status_response/242606363309393/281261212083555",
+            payload=json.dumps({"response": "online", "reason": "restarted"}),
+        )
+    )
+
+    assert len(client.published) == 1
+    assert client.published[0][0] == (
+        "SPV1.0/irrigation/stc_config_file_request/281261212083555/242606363309393"
+    )
+    assert "config_file_request_triggered" in caplog.text
+    assert "online_status_response_handled" in caplog.text
+    payload = json.loads(client.published[0][1])
+    assert payload["hostName"] == ""
+    assert payload["ipAddress"] == ""
+
+
 def test_input_status_response_handler_consumes_legacy_payload(tmp_path: Path, caplog) -> None:
     access_users_file = tmp_path / "airtable_access_users.json"
     access_users_file.write_text(json.dumps({"records": []}), encoding="utf-8")

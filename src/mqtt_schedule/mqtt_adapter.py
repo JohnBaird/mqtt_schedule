@@ -305,6 +305,9 @@ class MQTTMaintenancePublisher:
     def publish_temperature_request(self, destination_links: list[str], *, now: datetime | None = None) -> None:
         self._publish_messages(self.encoder.encode_temperature_request(destination_links, now=now))
 
+    def publish_config_file_request(self, destination_links: list[str], *, now: datetime | None = None) -> None:
+        self._publish_messages(self.encoder.encode_config_file_request(destination_links, now=now))
+
     def publish_online_status_response(
         self,
         destination: str,

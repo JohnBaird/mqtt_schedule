@@ -151,6 +151,14 @@ class AccessRequestMessageHandler:
 
         response = _payload_str_or_none(payload.get("response"))
         reason = _payload_str_or_none(payload.get("reason"))
+        if reason == "restarted":
+            self.maintenance_publisher.publish_config_file_request([parsed_topic.source_serial])
+            self.logger.info(
+                "config_file_request_triggered source_serial=%s destination_serial=%s reason=%s",
+                parsed_topic.source_serial,
+                parsed_topic.destination_serial,
+                reason,
+            )
         self.logger.info(
             "online_status_response_handled source_serial=%s destination_serial=%s response=%s reason=%s",
             parsed_topic.source_serial,

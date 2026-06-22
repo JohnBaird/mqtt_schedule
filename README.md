@@ -55,7 +55,6 @@ This repository currently contains:
 
 Still intentionally incomplete:
 
-- automatic publish trigger for `stc_config_file_request` when a controller reports `reason="restarted"`
 - MongoDB ingestion/history responsibilities
 - authoritative upstream producer for the Airtable JSON exports
 
@@ -151,7 +150,7 @@ Current inbound MQTT behavior:
 - `stc_temperature_response` is consumed, logged, and appended to the legacy-style temperature CSV.
 - `stc_config_file_response` is consumed and its `sysConfig` payload is written to `clients_sysinfo_dir`.
 - `stc_transaction_response` is consumed, logged, and appended to the legacy-style transaction CSV.
-- `stc_config_file_request` is not automatically published yet. The old system published it after `stc_online_status_response` with `reason="restarted"`, and that follow-up is still pending.
+- `stc_online_status_response` with `reason="restarted"` automatically triggers `stc_config_file_request` back to that controller.
 
 CSV reporting settings:
 

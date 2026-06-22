@@ -2,7 +2,14 @@ import json
 from datetime import datetime
 
 from mqtt_schedule.domain import DueCommand
-from mqtt_schedule.mqtt_adapter import MQTTBrokerSettings, MQTTCommandEncoder, PahoCommandPublisher, RecordingMQTTClient, SPTopic
+from mqtt_schedule.mqtt_adapter import (
+    MQTTBrokerSettings,
+    MQTTCommandEncoder,
+    MQTTMaintenancePublisher,
+    PahoCommandPublisher,
+    RecordingMQTTClient,
+    SPTopic,
+)
 
 
 def test_encodes_legacy_mqtt_command_shape() -> None:
@@ -298,3 +305,27 @@ def test_encode_input_status_response_uses_legacy_topic_shape() -> None:
     )
     assert input_response.payload["inputs_category"] == "Input ports unavailable"
     assert input_response.payload["input_ports"] == 0
+
+
+def test_maintenance_publisher_publishes_config_file_request() -> None:
+    client = RecordingMQTTClient()
+    encoder = MQTTCommandEncoder(
+        MQTTBrokerSettings(
+            host="localhost",
+            port=1883,
+            source_serial="281261212083555",
+        )
+    )
+    publisher = MQTTMaintenancePublisher(
+        encoder=encoder,
+        client=client,
+    )
+
+    publisher.publish_config_file_request(
+        ["242606363309393"],
+        now=datetime(2026, 6, 22, 10, 5, 0),
+    )
+
+    assert client.published[0][0] == (
+        "SPV1.0/irrigation/stc_config_file_request/281261212083555/242606363309393"
+    )
