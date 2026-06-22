@@ -30,6 +30,7 @@ class AccessRequestMessageHandler:
             self._subscription_topic_for("stc_online_status_response"),
             self._subscription_topic_for("stc_input_status_response"),
             self._subscription_topic_for("stc_temperature_response"),
+            self._subscription_topic_for("stc_config_file_response"),
         ]
 
     def handle_message(self, message: MQTTInboundMessage) -> None:
@@ -54,6 +55,9 @@ class AccessRequestMessageHandler:
             return
         if parsed_topic.command == "stc_temperature_response":
             self._handle_temperature_response(message, parsed_topic)
+            return
+        if parsed_topic.command == "stc_config_file_response":
+            self._handle_config_file_response(message, parsed_topic)
             return
         self.logger.debug(
             "inbound_message_ignored reason=unsupported_command command=%s topic=%s",
@@ -211,6 +215,46 @@ class AccessRequestMessageHandler:
             sensor_name,
             sensor_value,
             temperature_units,
+        )
+
+    def _handle_config_file_response(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        self.logger.info("config_file_response_message_received topic=%s", message.topic)
+        if parsed_topic.destination_serial != self.source_serial:
+            self.logger.debug(
+                "inbound_message_ignored reason=wrong_destination expected=%s actual=%s",
+                self.source_serial,
+                parsed_topic.destination_serial,
+            )
+            return
+
+        try:
+            payload = json.loads(message.payload)
+        except json.JSONDecodeError as exc:
+            self.logger.warning(
+                "config_file_response_ignored reason=invalid_payload_json topic=%s detail=%s",
+                message.topic,
+                exc,
+            )
+            return
+
+        config_data = payload.get("sysConfig")
+        if config_data is None:
+            self.logger.warning(
+                "config_file_response_ignored reason=missing_sysconfig source_serial=%s destination_serial=%s",
+                parsed_topic.source_serial,
+                parsed_topic.destination_serial,
+            )
+            return
+
+        output_dir = self.settings.clients_sysinfo_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"sysinfo_{parsed_topic.source_serial}.json"
+        output_path.write_text(json.dumps(config_data, indent=2), encoding="utf-8")
+        self.logger.info(
+            "config_file_response_handled source_serial=%s destination_serial=%s output_path=%s",
+            parsed_topic.source_serial,
+            parsed_topic.destination_serial,
+            output_path,
         )
 
     def _handle_access_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:

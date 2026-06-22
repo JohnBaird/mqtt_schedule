@@ -11,6 +11,7 @@ class RuntimeSettings:
     schedule_file: Path
     controller_file: Path
     access_users_file: Path
+    clients_sysinfo_dir: Path
     openweather_current_file: Path
     openweather_forecast_file: Path
     tempest_data_dir: Path
@@ -98,6 +99,12 @@ class RuntimeSettings:
                     str(base_dir / "airtable_access_users.json"),
                 )
             ),
+            clients_sysinfo_dir=Path(
+                os.environ.get(
+                    "MQTT_SCHEDULE_CLIENTS_SYSINFO_DIR",
+                    str(base_dir / "clients_sysinfo"),
+                )
+            ),
             openweather_current_file=openweather_current_file,
             openweather_forecast_file=openweather_forecast_file,
             tempest_data_dir=tempest_data_dir,
@@ -157,6 +164,7 @@ class RuntimeSettings:
             schedule_file=Path(data["schedule_file"]),
             controller_file=Path(data["controller_file"]),
             access_users_file=Path(data.get("access_users_file", "/etc/mqtt_schedule/airtable_access_users.json")),
+            clients_sysinfo_dir=Path(data.get("clients_sysinfo_dir", "/etc/mqtt_schedule/clients_sysinfo")),
             openweather_current_file=Path(data["openweather_current_file"]),
             openweather_forecast_file=Path(data["openweather_forecast_file"]),
             tempest_data_dir=Path(data["tempest_data_dir"]),
@@ -208,6 +216,7 @@ class RuntimeSettings:
             schedule_file=_env_path("MQTT_SCHEDULE_SCHEDULE_FILE", self.schedule_file),
             controller_file=_env_path("MQTT_SCHEDULE_CONTROLLER_FILE", self.controller_file),
             access_users_file=_env_path("MQTT_SCHEDULE_ACCESS_USERS_FILE", self.access_users_file),
+            clients_sysinfo_dir=_env_path("MQTT_SCHEDULE_CLIENTS_SYSINFO_DIR", self.clients_sysinfo_dir),
             openweather_current_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_CURRENT_FILE", self.openweather_current_file),
             openweather_forecast_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_FORECAST_FILE", self.openweather_forecast_file),
             tempest_data_dir=_env_path("MQTT_SCHEDULE_TEMPEST_DATA_DIR", self.tempest_data_dir),

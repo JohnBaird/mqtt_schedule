@@ -37,6 +37,7 @@ def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Pa
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -95,6 +96,7 @@ def test_access_request_handler_publishes_reject_for_unknown_credential(tmp_path
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -137,6 +139,7 @@ def test_access_request_handler_rejects_when_access_users_file_is_missing(tmp_pa
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -180,6 +183,7 @@ def test_online_status_request_handler_publishes_legacy_response(tmp_path: Path)
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -235,6 +239,7 @@ def test_input_status_request_handler_publishes_legacy_response(tmp_path: Path) 
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -284,6 +289,7 @@ def test_access_request_handler_rejects_when_access_users_file_is_invalid_json(t
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -327,6 +333,7 @@ def test_online_status_response_handler_consumes_legacy_payload(tmp_path: Path, 
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -371,6 +378,7 @@ def test_input_status_response_handler_consumes_legacy_payload(tmp_path: Path, c
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -415,6 +423,7 @@ def test_temperature_response_handler_consumes_legacy_payload(tmp_path: Path, ca
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
         access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
@@ -457,3 +466,52 @@ def test_temperature_response_handler_consumes_legacy_payload(tmp_path: Path, ca
     assert "sensor_name=CPU_temp" in caplog.text
     assert "sensor_value=48.2" in caplog.text
     assert "temperature_units=degC" in caplog.text
+
+
+def test_config_file_response_handler_writes_sysinfo_snapshot(tmp_path: Path, caplog) -> None:
+    access_users_file = tmp_path / "airtable_access_users.json"
+    access_users_file.write_text(json.dumps({"records": []}), encoding="utf-8")
+    clients_sysinfo_dir = tmp_path / "clients_sysinfo"
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=access_users_file,
+        clients_sysinfo_dir=clients_sysinfo_dir,
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        access_groups=("group1",),
+    )
+    client = RecordingMQTTClient()
+    publisher = MQTTMaintenancePublisher(
+        encoder=MQTTCommandEncoder(
+            MQTTBrokerSettings(
+                host="localhost",
+                port=1883,
+                source_serial="281261212083555",
+            )
+        ),
+        client=client,
+    )
+    handler = AccessRequestMessageHandler(
+        settings=settings,
+        maintenance_publisher=publisher,
+        source_serial="281261212083555",
+    )
+
+    caplog.set_level("INFO")
+    handler.handle_message(
+        MQTTInboundMessage(
+            topic="SPV1.0/irrigation/stc_config_file_response/242606363309393/281261212083555",
+            payload=json.dumps({"sysConfig": {"temperature_units": "degC", "outputs": [1, 2, 3]}}),
+        )
+    )
+
+    output_path = clients_sysinfo_dir / "sysinfo_242606363309393.json"
+    assert output_path.exists()
+    saved = json.loads(output_path.read_text(encoding="utf-8"))
+    assert saved["temperature_units"] == "degC"
+    assert saved["outputs"] == [1, 2, 3]
+    assert client.published == []
+    assert "config_file_response_handled" in caplog.text
