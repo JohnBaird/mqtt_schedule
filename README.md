@@ -30,7 +30,32 @@ This repository currently contains:
 - A reverse-engineering summary of the legacy application.
 - A typed domain model for schedule evaluation.
 - A pure scheduler engine that can be tested without MQTT, Airtable, or MongoDB.
-- A small application service skeleton showing how adapters should plug in.
+- A Linux-oriented service runner with minute-boundary scheduling and periodic jobs.
+- Legacy-compatible MQTT publish support for:
+  - `stc_airtable_output_onoff_request`
+  - `stc_online_status_request`
+  - `stc_input_status_request`
+  - `stc_temperature_request`
+  - `stc_online_status_response`
+  - `stc_input_status_response`
+  - `stc_access_response`
+- Live inbound MQTT handling for:
+  - `stc_access_request`
+  - `stc_online_status_request`
+  - `stc_input_status_request`
+  - `stc_online_status_response`
+  - `stc_input_status_response`
+  - `stc_temperature_response`
+  - `stc_config_file_response`
+- File-backed OpenWeather/Tempest refresh jobs for Linux deployment.
+
+Still intentionally incomplete:
+
+- automatic publish trigger for `stc_config_file_request` when a controller reports `reason="restarted"`
+- inbound `stc_transaction_response`
+- CSV parity for temperature and transaction logging
+- MongoDB ingestion/history responsibilities
+- authoritative upstream producer for the Airtable JSON exports
 
 ## Local Python Runtime
 
@@ -90,6 +115,7 @@ Planned placement for connection information:
 - MQTT username/password: `mqtt_schedule.env`
 - OpenWeather API key: `mqtt_schedule.env`
 - Tempest token: `mqtt_schedule.env`
+- controller sysinfo snapshots: `clients_sysinfo_dir` in `runtime.json`
 - Persisted device identity: `/var/lib/mqtt_schedule/device_serial.txt`
 - Temporary commissioning destination filter: `runtime.json` or `mqtt_schedule.env`
 
@@ -107,10 +133,20 @@ Service runtime:
 - `python -m mqtt_schedule --service` runs the scheduler continuously.
 - The service loop fires once per minute on the wall-clock minute boundary.
 - The same service loop can also refresh OpenWeather and Tempest files on independent intervals when credentials are configured.
+- The same service loop also publishes periodic controller status/temperature requests when enabled in config.
 - `python -m mqtt_schedule --refresh-weather-now` forces the configured weather refresh jobs to run immediately and update the local files.
 - `python -m mqtt_schedule --validate-airtable-files` validates the file-based Airtable contract and exits.
 - `SIGINT` and `SIGTERM` trigger graceful shutdown.
 - A sample `systemd` unit is included at [mqtt_schedule.service](E:\Development\mqtt_schedule\deploy\mqtt_schedule.service:1).
+
+Current inbound MQTT behavior:
+
+- `stc_access_request` is answered with `stc_access_response`.
+- `stc_online_status_request` is answered with `stc_online_status_response`.
+- `stc_input_status_request` is answered with `stc_input_status_response`.
+- `stc_online_status_response`, `stc_input_status_response`, and `stc_temperature_response` are consumed and logged.
+- `stc_config_file_response` is consumed and its `sysConfig` payload is written to `clients_sysinfo_dir`.
+- `stc_config_file_request` is not automatically published yet. The old system published it after `stc_online_status_response` with `reason="restarted"`, and that follow-up is still pending.
 
 ## MQTT Compatibility
 
@@ -181,6 +217,45 @@ For live weather commissioning:
 
 ```bash
 /opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --refresh-weather-now --dry-run
+```
+
+If you want controller config snapshots saved from inbound `stc_config_file_response`, set this in `/etc/mqtt_schedule/runtime.json`:
+
+```json
+"clients_sysinfo_dir": "/etc/mqtt_schedule/clients_sysinfo"
+```
+
+Then create the directory and make it writable by the service user:
+
+```bash
+sudo mkdir -p /etc/mqtt_schedule/clients_sysinfo
+sudo chown -R mqttschedule:mqttschedule /etc/mqtt_schedule/clients_sysinfo
+```
+
+## Linux Update Flow
+
+For normal Linux updates, use `/opt/mqtt_schedule` as the one real checkout. Do not use a long-lived staging copy such as `~/mqtt_schedule_temp` for routine updates.
+
+Recommended update flow:
+
+```bash
+cd /opt/mqtt_schedule
+git pull
+/opt/mqtt_schedule/.venv/bin/python -m pip install .
+sudo systemctl restart mqtt_schedule
+sudo journalctl -u mqtt_schedule -n 50 --no-pager
+```
+
+Operational note:
+
+- `mqtt_schedule` logs to the `systemd` journal, not to a plain text logfile.
+- Use `journalctl -u mqtt_schedule` and pipe to `grep` if needed.
+
+Examples:
+
+```bash
+sudo journalctl -u mqtt_schedule --since today | grep online_status_response
+sudo journalctl -u mqtt_schedule -n 200 | grep config_file_response
 ```
 
 ## Staging Venv Recovery
