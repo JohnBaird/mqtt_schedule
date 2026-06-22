@@ -27,6 +27,8 @@ class AccessRequestMessageHandler:
             self._subscription_topic_for("stc_access_request"),
             self._subscription_topic_for("stc_online_status_request"),
             self._subscription_topic_for("stc_input_status_request"),
+            self._subscription_topic_for("stc_online_status_response"),
+            self._subscription_topic_for("stc_input_status_response"),
         ]
 
     def handle_message(self, message: MQTTInboundMessage) -> None:
@@ -42,6 +44,12 @@ class AccessRequestMessageHandler:
             return
         if parsed_topic.command == "stc_input_status_request":
             self._handle_input_status_request(message, parsed_topic)
+            return
+        if parsed_topic.command == "stc_online_status_response":
+            self._handle_online_status_response(message, parsed_topic)
+            return
+        if parsed_topic.command == "stc_input_status_response":
+            self._handle_input_status_response(message, parsed_topic)
             return
         self.logger.debug(
             "inbound_message_ignored reason=unsupported_command command=%s topic=%s",
@@ -102,6 +110,66 @@ class AccessRequestMessageHandler:
             parsed_topic.destination_serial,
             "Input ports unavailable",
             0,
+        )
+
+    def _handle_online_status_response(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        self.logger.info("online_status_response_message_received topic=%s", message.topic)
+        if parsed_topic.destination_serial != self.source_serial:
+            self.logger.debug(
+                "inbound_message_ignored reason=wrong_destination expected=%s actual=%s",
+                self.source_serial,
+                parsed_topic.destination_serial,
+            )
+            return
+
+        try:
+            payload = json.loads(message.payload)
+        except json.JSONDecodeError as exc:
+            self.logger.warning(
+                "online_status_response_ignored reason=invalid_payload_json topic=%s detail=%s",
+                message.topic,
+                exc,
+            )
+            return
+
+        response = _payload_str_or_none(payload.get("response"))
+        reason = _payload_str_or_none(payload.get("reason"))
+        self.logger.info(
+            "online_status_response_handled source_serial=%s destination_serial=%s response=%s reason=%s",
+            parsed_topic.source_serial,
+            parsed_topic.destination_serial,
+            response,
+            reason,
+        )
+
+    def _handle_input_status_response(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        self.logger.info("input_status_response_message_received topic=%s", message.topic)
+        if parsed_topic.destination_serial != self.source_serial:
+            self.logger.debug(
+                "inbound_message_ignored reason=wrong_destination expected=%s actual=%s",
+                self.source_serial,
+                parsed_topic.destination_serial,
+            )
+            return
+
+        try:
+            payload = json.loads(message.payload)
+        except json.JSONDecodeError as exc:
+            self.logger.warning(
+                "input_status_response_ignored reason=invalid_payload_json topic=%s detail=%s",
+                message.topic,
+                exc,
+            )
+            return
+
+        inputs_category = _payload_str_or_none(payload.get("inputs_category"))
+        input_ports = payload.get("input_ports")
+        self.logger.info(
+            "input_status_response_handled source_serial=%s destination_serial=%s inputs_category=%s input_ports=%s",
+            parsed_topic.source_serial,
+            parsed_topic.destination_serial,
+            inputs_category,
+            input_ports,
         )
 
     def _handle_access_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
