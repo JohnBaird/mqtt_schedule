@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from time import time
 
 from .access_control import AccessDecisionService, FileAccessUserRepository
 from .domain import AccessDecision, AccessRequest
@@ -31,6 +32,7 @@ class AccessRequestMessageHandler:
             self._subscription_topic_for("stc_input_status_response"),
             self._subscription_topic_for("stc_temperature_response"),
             self._subscription_topic_for("stc_config_file_response"),
+            self._subscription_topic_for("stc_transaction_response"),
         ]
 
     def handle_message(self, message: MQTTInboundMessage) -> None:
@@ -58,6 +60,9 @@ class AccessRequestMessageHandler:
             return
         if parsed_topic.command == "stc_config_file_response":
             self._handle_config_file_response(message, parsed_topic)
+            return
+        if parsed_topic.command == "stc_transaction_response":
+            self._handle_transaction_response(message, parsed_topic)
             return
         self.logger.debug(
             "inbound_message_ignored reason=unsupported_command command=%s topic=%s",
@@ -257,6 +262,44 @@ class AccessRequestMessageHandler:
             output_path,
         )
 
+    def _handle_transaction_response(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        self.logger.info("transaction_response_message_received topic=%s", message.topic)
+        if parsed_topic.destination_serial != self.source_serial:
+            self.logger.debug(
+                "inbound_message_ignored reason=wrong_destination expected=%s actual=%s",
+                self.source_serial,
+                parsed_topic.destination_serial,
+            )
+            return
+
+        try:
+            payload = json.loads(message.payload)
+        except json.JSONDecodeError as exc:
+            self.logger.warning(
+                "transaction_response_ignored reason=invalid_payload_json topic=%s detail=%s",
+                message.topic,
+                exc,
+            )
+            return
+
+        latency_seconds = _latency_seconds_from_timestamp(payload.get("timestamp"))
+        id_number = _payload_str_or_none(payload.get("idNumber"))
+        unique_id = _payload_str_or_none(payload.get("UniqueId"))
+        full_name = _payload_str_or_none(payload.get("fullName"))
+        transaction_id = _payload_str_or_none(payload.get("_iD"))
+
+        self.logger.info(
+            "transaction_response_handled source_serial=%s destination_serial=%s transaction_id=%s transaction_type=%s id_number=%s unique_id=%s full_name=%s latency_seconds=%s",
+            parsed_topic.source_serial,
+            parsed_topic.destination_serial,
+            transaction_id,
+            parsed_topic.domain,
+            id_number,
+            unique_id,
+            full_name,
+            latency_seconds,
+        )
+
     def _handle_access_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
         self.logger.info("access_request_message_received topic=%s", message.topic)
         if parsed_topic.destination_serial != self.source_serial:
@@ -335,6 +378,15 @@ def _payload_str_or_none(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value
     return None
+
+
+def _latency_seconds_from_timestamp(value: object) -> str:
+    if isinstance(value, bool):
+        return "not received"
+    if isinstance(value, (int, float)):
+        current_ms = int(time() * 1000)
+        return f"{(current_ms - int(value)) / 1000:.3f}"
+    return "not received"
 
 
 def _fallback_reject_decision(request: AccessRequest):
