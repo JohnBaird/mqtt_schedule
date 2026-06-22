@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .csv_reporting import LegacyCsvRecorder
+
 
 @dataclass(frozen=True)
 class ControllerStatusUpdate:
@@ -18,8 +20,9 @@ class ControllerStatusUpdate:
 
 
 class ControllerStatusStore:
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, csv_recorder: LegacyCsvRecorder | None = None) -> None:
         self.path = Path(path)
+        self.csv_recorder = csv_recorder
         self.logger = logging.getLogger("mqtt_schedule.controller_status")
 
     def record_online_status(self, update: ControllerStatusUpdate) -> None:
@@ -46,6 +49,53 @@ class ControllerStatusStore:
             update.response,
             update.reason,
             update.config_sync_requested,
+            self.path,
+        )
+
+    def refresh_online_flags(self, *, now: datetime, offline_after_seconds: int) -> None:
+        payload = self._load()
+        controllers = payload.setdefault("controllers", {})
+        changed_serials: list[str] = []
+
+        for source_serial, controller in controllers.items():
+            if not isinstance(controller, dict):
+                continue
+            last_seen_at_raw = controller.get("last_seen_at")
+            if not isinstance(last_seen_at_raw, str) or not last_seen_at_raw.strip():
+                continue
+            try:
+                last_seen_at = datetime.fromisoformat(last_seen_at_raw)
+            except ValueError:
+                continue
+
+            should_be_online = (now - last_seen_at).total_seconds() <= offline_after_seconds
+            if controller.get("online") == should_be_online:
+                continue
+
+            controller["online"] = should_be_online
+            if not should_be_online:
+                controller["last_offline_at"] = now.isoformat()
+                if self.csv_recorder is not None:
+                    self.csv_recorder.record_controller_offline_event(
+                        source_serial=source_serial,
+                        last_seen_at=last_seen_at.isoformat(),
+                        detected_at=now.isoformat(),
+                        last_response=str(controller.get("last_response") or ""),
+                        last_reason=str(controller.get("last_reason") or ""),
+                        offline_after_seconds=offline_after_seconds,
+                    )
+            changed_serials.append(source_serial)
+
+        if not changed_serials:
+            return
+
+        payload["updated_at"] = now.isoformat()
+        self._write(payload)
+        self.logger.info(
+            "controller_status_refreshed changed_count=%s offline_after_seconds=%s controllers=%s path=%s",
+            len(changed_serials),
+            offline_after_seconds,
+            ",".join(sorted(changed_serials)),
             self.path,
         )
 

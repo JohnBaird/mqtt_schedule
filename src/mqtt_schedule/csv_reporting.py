@@ -30,12 +30,23 @@ class TemperatureCsvRow:
     tempValue: str
 
 
+@dataclass(frozen=True)
+class ControllerStatusCsvRow:
+    serialSource: str
+    eventType: str
+    lastSeenAt: str
+    detectedAt: str
+    lastResponse: str
+    lastReason: str
+    offlineAfterSeconds: str
+
+
 class RotatingCsvWriter:
     def __init__(
         self,
         *,
         file_path: Path,
-        row_type: type[TransactionCsvRow] | type[TemperatureCsvRow],
+        row_type: type[TransactionCsvRow] | type[TemperatureCsvRow] | type[ControllerStatusCsvRow],
         max_entries: int,
         backup_dir: Path,
         backup_count: int,
@@ -121,9 +132,11 @@ class LegacyCsvRecorder:
         *,
         transaction_writer: RotatingCsvWriter,
         temperature_writer: RotatingCsvWriter,
+        controller_status_writer: RotatingCsvWriter,
     ) -> None:
         self.transaction_writer = transaction_writer
         self.temperature_writer = temperature_writer
+        self.controller_status_writer = controller_status_writer
 
     @classmethod
     def from_settings(cls, settings) -> "LegacyCsvRecorder":
@@ -143,6 +156,14 @@ class LegacyCsvRecorder:
                 max_entries=settings.temperature_csv_max_entries,
                 backup_dir=settings.csv_backup_dir,
                 backup_count=settings.temperature_csv_backup_count,
+                logger=logger,
+            ),
+            controller_status_writer=RotatingCsvWriter(
+                file_path=settings.controller_status_csv_file,
+                row_type=ControllerStatusCsvRow,
+                max_entries=settings.controller_status_csv_max_entries,
+                backup_dir=settings.csv_backup_dir,
+                backup_count=settings.controller_status_csv_backup_count,
                 logger=logger,
             ),
         )
@@ -192,5 +213,27 @@ class LegacyCsvRecorder:
                 hostName=host_name,
                 sensorName=sensor_name,
                 tempValue=temp_value,
+            )
+        )
+
+    def record_controller_offline_event(
+        self,
+        *,
+        source_serial: str,
+        last_seen_at: str,
+        detected_at: str,
+        last_response: str,
+        last_reason: str,
+        offline_after_seconds: int,
+    ) -> None:
+        self.controller_status_writer.write_row(
+            ControllerStatusCsvRow(
+                serialSource=source_serial,
+                eventType="offline_timeout",
+                lastSeenAt=last_seen_at,
+                detectedAt=detected_at,
+                lastResponse=last_response,
+                lastReason=last_reason,
+                offlineAfterSeconds=str(offline_after_seconds),
             )
         )

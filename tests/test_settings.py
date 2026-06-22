@@ -19,6 +19,8 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.tempest_data_dir.as_posix() == "/etc/mqtt_schedule/tempest_weather_data"
     assert settings.device_serial_file.as_posix() == "/var/lib/mqtt_schedule/device_serial.txt"
     assert settings.controller_status_file.as_posix() == "/var/lib/mqtt_schedule/controller_status.json"
+    assert settings.controller_offline_after_seconds == 180
+    assert settings.controller_status_csv_file.as_posix() == "/var/lib/mqtt_schedule/controller_status_events.csv"
     assert settings.airtable_base_url == "https://api.airtable.com/v0"
     assert settings.airtable_base_id == "appUSmE6ODKXkqLh3"
     assert settings.airtable_controller_table == "irrigation-config"
@@ -36,6 +38,8 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.transaction_csv_backup_count == 10
     assert settings.temperature_csv_max_entries == 5000
     assert settings.temperature_csv_backup_count == 10
+    assert settings.controller_status_csv_max_entries == 5000
+    assert settings.controller_status_csv_backup_count == 10
 
 
 def test_runtime_settings_reads_commissioning_destinations_from_json(tmp_path: Path) -> None:
@@ -102,3 +106,11 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
     assert settings.weather_refresh_openweather_seconds == 300
     assert settings.weather_refresh_tempest_seconds == 600
     assert settings.weather_refresh_run_immediately is True
+
+
+def test_runtime_settings_reads_controller_offline_timeout_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("MQTT_SCHEDULE_CONTROLLER_OFFLINE_AFTER_SECONDS", "420")
+
+    settings = RuntimeSettings.from_env()
+
+    assert settings.controller_offline_after_seconds == 420

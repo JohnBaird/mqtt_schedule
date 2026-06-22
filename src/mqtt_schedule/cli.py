@@ -108,6 +108,7 @@ def main() -> int:
     )
 
     access_request_handler = None
+    controller_status_store = None
     subscriptions: list[str] = []
 
     if args.dry_run:
@@ -115,7 +116,10 @@ def main() -> int:
         client = None
     else:
         csv_recorder = LegacyCsvRecorder.from_settings(settings)
-        controller_status_store = ControllerStatusStore(settings.controller_status_file)
+        controller_status_store = ControllerStatusStore(
+            settings.controller_status_file,
+            csv_recorder=csv_recorder,
+        )
         access_request_handler = AccessRequestMessageHandler(
             settings=settings,
             maintenance_publisher=MQTTMaintenancePublisher(encoder=encoder, client=None),
@@ -199,13 +203,17 @@ def main() -> int:
             controller_repository=controller_repository,
             maintenance_publisher=maintenance_publisher,
         )
+        controller_status_jobs = build_controller_status_jobs(
+            settings=settings,
+            controller_status_store=controller_status_store,
+        )
         if args.service:
             if args.refresh_weather_now:
                 _run_weather_refresh_now(refresh_jobs)
             runner = ServiceRunner(
                 app,
                 config=ServiceConfig(run_immediately=args.run_immediately),
-                periodic_jobs=refresh_jobs + mqtt_request_jobs,
+                periodic_jobs=refresh_jobs + mqtt_request_jobs + controller_status_jobs,
             )
             signals = SignalAwareService(runner)
             signals.install_signal_handlers()
@@ -475,6 +483,37 @@ def build_mqtt_request_jobs(
         )
 
     return jobs
+
+
+def build_controller_status_jobs(
+    *,
+    settings: RuntimeSettings,
+    controller_status_store: ControllerStatusStore | None,
+) -> list[PeriodicJob]:
+    logger = logging.getLogger("mqtt_schedule.cli")
+    if controller_status_store is None:
+        logger.info("controller_status_refresh_disabled reason=no_persistent_store")
+        return []
+
+    def refresh_controller_status() -> None:
+        controller_status_store.refresh_online_flags(
+            now=datetime.now(),
+            offline_after_seconds=settings.controller_offline_after_seconds,
+        )
+
+    logger.info(
+        "controller_status_refresh_configured interval_seconds=%s offline_after_seconds=%s",
+        60,
+        settings.controller_offline_after_seconds,
+    )
+    return [
+        PeriodicJob(
+            job_id="controller-status-refresh",
+            interval_seconds=60,
+            fn=refresh_controller_status,
+            run_immediately=False,
+        )
+    ]
 
 
 def build_controller_repository(

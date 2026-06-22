@@ -149,6 +149,7 @@ Current inbound MQTT behavior:
 - `stc_access_request` is answered with `stc_access_response`.
 - access decisions are logged with explicit reasons such as `granted`, `credential_not_found`, `group_mismatch`, or `access_user_data_unavailable`.
 - `stc_access_request` also appends a legacy-style request-side row to `transactions.csv`.
+- access request traceability is preserved by reusing the same `_iD` across the inbound request, outbound `stc_access_response`, and request-side `transactions.csv` row.
 - `stc_online_status_request` is answered with `stc_online_status_response`.
 - `stc_input_status_request` is answered with `stc_input_status_response`.
 - `stc_online_status_response` and `stc_input_status_response` are consumed and logged.
@@ -168,14 +169,28 @@ CSV reporting settings:
 
 - `transaction_csv_file` defaults to `/var/lib/mqtt_schedule/transactions.csv`
 - `temperature_csv_file` defaults to `/var/lib/mqtt_schedule/temperature.csv`
+- `controller_status_csv_file` defaults to `/var/lib/mqtt_schedule/controller_status_events.csv`
 - `csv_backup_dir` defaults to `/var/lib/mqtt_schedule/csv_backup`
 - `transaction_csv_max_entries` and `temperature_csv_max_entries` default to `5000`
 - `transaction_csv_backup_count` and `temperature_csv_backup_count` default to `10`
+- `controller_status_csv_max_entries` defaults to `5000`
+- `controller_status_csv_backup_count` defaults to `10`
 
 Controller status settings:
 
 - `controller_status_file` defaults to `/var/lib/mqtt_schedule/controller_status.json`
+- `controller_offline_after_seconds` defaults to `180`
 - each inbound `stc_online_status_response` updates that file with the controller's last seen timestamp, response, reason, and restart/config-sync markers
+- the service recalculates controller online/offline state once per minute from `last_seen_at`, so the file stays bounded to one current-state entry per controller instead of growing as a history log
+- when a controller transitions to offline because it exceeded `controller_offline_after_seconds`, one `offline_timeout` row is appended to `controller_status_csv_file`
+
+Transaction traceability:
+
+- `transactions.csv` is intended to support traceability across request-side and response-side events.
+- request-side access rows keep the same `_iD` as the inbound `stc_access_request`.
+- outbound `stc_access_response` also reuses that same `_iD`.
+- response-side `stc_transaction_response` rows keep their own incoming `_iD` and latency value.
+- when request and response events share the same `_iD`, latency and event flow can be correlated by matching that identifier.
 
 ## MQTT Compatibility
 
@@ -266,6 +281,15 @@ Then create the directory and make it writable by the service user:
 sudo mkdir -p /etc/mqtt_schedule/clients_sysinfo
 sudo chown -R mqttschedule:mqttschedule /etc/mqtt_schedule/clients_sysinfo
 ```
+
+If you want controller offline detection to match your site, set this in `/etc/mqtt_schedule/runtime.json`:
+
+```json
+"controller_offline_after_seconds": 180
+```
+
+That means a controller is marked offline if no fresh `stc_online_status_response` has been seen for more than 180 seconds.
+That timeout transition also writes one CSV event row to `/var/lib/mqtt_schedule/controller_status_events.csv` unless you override the path.
 
 ## Linux Update Flow
 
@@ -380,3 +404,4 @@ Recent history from git:
 - `d2c3a21` Add service commissioning logs
 - `c277ade` Add service-safe commissioning destination filter
 - `b9adea0` Initial professional rewrite foundation
+git log --pretty=format:"- \`%h\` %s" -n 20
