@@ -106,11 +106,12 @@ def main() -> int:
             maintenance_publisher=MQTTMaintenancePublisher(encoder=encoder, client=None),
             source_serial=source_serial,
         )
-        subscriptions.append(access_request_handler.subscription_topic)
-        logging.getLogger("mqtt_schedule.cli").info(
-            "inbound_subscription_configured topic=%s",
-            access_request_handler.subscription_topic,
-        )
+        subscriptions.extend(access_request_handler.subscription_topics())
+        for topic in access_request_handler.subscription_topics():
+            logging.getLogger("mqtt_schedule.cli").info(
+                "inbound_subscription_configured topic=%s",
+                topic,
+            )
         client = PahoClientFactory.connect(
             encoder.settings,
             subscriptions=subscriptions,

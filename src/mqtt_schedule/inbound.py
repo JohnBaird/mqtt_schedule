@@ -22,36 +22,79 @@ class AccessRequestMessageHandler:
         self.source_serial = source_serial
         self.logger = logging.getLogger("mqtt_schedule.inbound")
 
-    @property
-    def subscription_topic(self) -> str:
+    def subscription_topics(self) -> list[str]:
+        return [
+            self._subscription_topic_for("stc_access_request"),
+            self._subscription_topic_for("stc_online_status_request"),
+        ]
+
+    def handle_message(self, message: MQTTInboundMessage) -> None:
+        parsed_topic = SPTopic.parse(message.topic)
+        if parsed_topic is None:
+            self.logger.warning("inbound_message_ignored reason=invalid_topic topic=%s", message.topic)
+            return
+        if parsed_topic.command == "stc_access_request":
+            self._handle_access_request(message, parsed_topic)
+            return
+        if parsed_topic.command == "stc_online_status_request":
+            self._handle_online_status_request(message, parsed_topic)
+            return
+        self.logger.debug(
+            "inbound_message_ignored reason=unsupported_command command=%s topic=%s",
+            parsed_topic.command,
+            message.topic,
+        )
+
+    def _subscription_topic_for(self, command: str) -> str:
         return "/".join(
             [
                 self.settings.mqtt_topic_version,
                 self.settings.mqtt_domain,
-                "stc_access_request",
+                command,
                 "+",
                 self.source_serial,
             ]
         )
 
-    def handle_message(self, message: MQTTInboundMessage) -> None:
-        self.logger.info("access_request_message_received topic=%s", message.topic)
-        parsed_topic = SPTopic.parse(message.topic)
-        if parsed_topic is None:
-            self.logger.warning("inbound_message_ignored reason=invalid_topic topic=%s", message.topic)
-            return
-        if parsed_topic.command != "stc_access_request":
-            self.logger.debug(
-                "inbound_message_ignored reason=unsupported_command command=%s topic=%s",
-                parsed_topic.command,
-                message.topic,
-            )
-            return
+    def _handle_online_status_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        self.logger.info("online_status_request_message_received topic=%s", message.topic)
         if parsed_topic.destination_serial != self.source_serial:
             self.logger.debug(
                 "inbound_message_ignored reason=wrong_destination expected=%s actual=%s",
                 self.source_serial,
                 parsed_topic.destination_serial,
+            )
+            return
+
+        self.maintenance_publisher.publish_online_status_response(
+            parsed_topic.source_serial,
+            response="online",
+            reason="requested",
+        )
+        self.logger.info(
+            "online_status_request_handled source_serial=%s destination_serial=%s response=online reason=requested",
+            parsed_topic.source_serial,
+            parsed_topic.destination_serial,
+        )
+
+    def _handle_access_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        self.logger.info("access_request_message_received topic=%s", message.topic)
+        if parsed_topic.destination_serial != self.source_serial:
+            self.logger.debug(
+                "inbound_message_ignored reason=wrong_destination expected=%s actual=%s",
+                self.source_serial,
+                parsed_topic.destination_serial,
+            )
+            return
+
+        self._process_access_request(message, parsed_topic)
+
+    def _process_access_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        if parsed_topic.command != "stc_access_request":
+            self.logger.debug(
+                "inbound_message_ignored reason=unsupported_command command=%s topic=%s",
+                parsed_topic.command,
+                message.topic,
             )
             return
 
