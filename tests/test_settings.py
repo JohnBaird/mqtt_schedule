@@ -36,6 +36,8 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.mongo_col_ingestion_runs == "ingestion_runs"
     assert settings.mongo_connect_timeout_ms == 3000
     assert settings.mongo_server_selection_timeout_ms == 3000
+    assert settings.mongo_tempest_ingest_seconds == 3600
+    assert settings.mongo_tempest_ingest_run_immediately is False
     assert settings.commissioning_only_destinations == ()
     assert settings.mqtt_host == "localhost"
     assert settings.mqtt_port == 1883
@@ -113,6 +115,8 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
     monkeypatch.setenv("MQTT_SCHEDULE_MONGO_AUTHENTICATE", "true")
     monkeypatch.setenv("MQTT_SCHEDULE_MONGO_USERNAME", "dbuser")
     monkeypatch.setenv("MQTT_SCHEDULE_MONGO_PASSWORD", "dbpass")
+    monkeypatch.setenv("MQTT_SCHEDULE_MONGO_TEMPEST_INGEST_SECONDS", "600")
+    monkeypatch.setenv("MQTT_SCHEDULE_MONGO_TEMPEST_INGEST_RUN_IMMEDIATELY", "true")
     monkeypatch.setenv("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", "300")
     monkeypatch.setenv("MQTT_SCHEDULE_TEMPEST_REFRESH_SECONDS", "600")
     monkeypatch.setenv("MQTT_SCHEDULE_WEATHER_REFRESH_RUN_IMMEDIATELY", "true")
@@ -128,6 +132,8 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
     assert settings.mongo_authenticate is True
     assert settings.mongo_username == "dbuser"
     assert settings.mongo_password == "dbpass"
+    assert settings.mongo_tempest_ingest_seconds == 600
+    assert settings.mongo_tempest_ingest_run_immediately is True
     assert settings.weather_refresh_openweather_seconds == 300
     assert settings.weather_refresh_tempest_seconds == 600
     assert settings.weather_refresh_run_immediately is True

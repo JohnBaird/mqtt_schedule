@@ -50,6 +50,8 @@ class RuntimeSettings:
     mongo_col_ingestion_runs: str = "ingestion_runs"
     mongo_connect_timeout_ms: int = 3000
     mongo_server_selection_timeout_ms: int = 3000
+    mongo_tempest_ingest_seconds: int = 3600
+    mongo_tempest_ingest_run_immediately: bool = False
     tempest_base_url: str = "https://swd.weatherflow.com/swd/rest"
     tempest_token: str | None = None
     weather_refresh_openweather_seconds: int = 3 * 3600
@@ -216,6 +218,13 @@ class RuntimeSettings:
             mongo_server_selection_timeout_ms=int(
                 os.environ.get("MQTT_SCHEDULE_MONGO_SERVER_SELECTION_TIMEOUT_MS", "3000")
             ),
+            mongo_tempest_ingest_seconds=int(
+                os.environ.get("MQTT_SCHEDULE_MONGO_TEMPEST_INGEST_SECONDS", "3600")
+            ),
+            mongo_tempest_ingest_run_immediately=_env_bool(
+                "MQTT_SCHEDULE_MONGO_TEMPEST_INGEST_RUN_IMMEDIATELY",
+                False,
+            ),
             tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", "https://swd.weatherflow.com/swd/rest"),
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN"),
             weather_refresh_openweather_seconds=int(os.environ.get("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", str(3 * 3600))),
@@ -305,6 +314,10 @@ class RuntimeSettings:
             mongo_col_ingestion_runs=data.get("mongo_col_ingestion_runs", "ingestion_runs"),
             mongo_connect_timeout_ms=int(data.get("mongo_connect_timeout_ms", 3000)),
             mongo_server_selection_timeout_ms=int(data.get("mongo_server_selection_timeout_ms", 3000)),
+            mongo_tempest_ingest_seconds=int(data.get("mongo_tempest_ingest_seconds", 3600)),
+            mongo_tempest_ingest_run_immediately=bool(
+                data.get("mongo_tempest_ingest_run_immediately", False)
+            ),
             tempest_base_url=data.get("tempest_base_url", "https://swd.weatherflow.com/swd/rest"),
             tempest_token=data.get("tempest_token"),
             weather_refresh_openweather_seconds=int(data.get("weather_refresh_openweather_seconds", 3 * 3600)),
@@ -430,6 +443,14 @@ class RuntimeSettings:
             mongo_server_selection_timeout_ms=_env_int(
                 "MQTT_SCHEDULE_MONGO_SERVER_SELECTION_TIMEOUT_MS",
                 self.mongo_server_selection_timeout_ms,
+            ),
+            mongo_tempest_ingest_seconds=_env_int(
+                "MQTT_SCHEDULE_MONGO_TEMPEST_INGEST_SECONDS",
+                self.mongo_tempest_ingest_seconds,
+            ),
+            mongo_tempest_ingest_run_immediately=_env_bool(
+                "MQTT_SCHEDULE_MONGO_TEMPEST_INGEST_RUN_IMMEDIATELY",
+                self.mongo_tempest_ingest_run_immediately,
             ),
             tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", self.tempest_base_url),
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN", self.tempest_token),

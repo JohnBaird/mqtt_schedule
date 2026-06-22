@@ -57,10 +57,14 @@ This repository currently contains:
   - legacy-compatible collection naming
   - connection/index management
   - ingestion audit record persistence
+- Tempest MongoDB ingestion for:
+  - `stations`
+  - `tempest_flow`
+  - `ingestion_runs`
 
 Still intentionally incomplete:
 
-- MongoDB weather document ingestion and query responsibilities
+- OpenWeather MongoDB ingestion and DB-backed weather query/decision responsibilities
 - authoritative upstream producer for the Airtable JSON exports
 
 ## Local Python Runtime
@@ -234,6 +238,16 @@ Current Airtable sync behavior:
 - service mode can also run periodic Airtable refresh using `airtable_sync_seconds`.
 - if `airtable_sync_run_immediately` is enabled, the Airtable refresh job also runs once at service startup.
 
+Current MongoDB behavior:
+
+- service mode can ingest Tempest weather files into MongoDB using `mongo_tempest_ingest_seconds`
+- the Tempest ingest preserves the legacy collection shapes for:
+  - `stations`
+  - `tempest_flow`
+  - `ingestion_runs`
+- Tempest ingest reads the same current files the Linux service already refreshes under `tempest_data_dir`
+- historical snapshot files are not ingested by the automatic service job
+
 CSV reporting settings:
 
 - `transaction_csv_file` defaults to `/var/lib/mqtt_schedule/transactions.csv`
@@ -372,6 +386,15 @@ If you want the running service to refresh Airtable exports automatically, set t
 ```
 
 That means the service refreshes controller, schedule, and access-user Airtable exports every 900 seconds, and also performs one refresh immediately when the service starts.
+
+If you want the running service to ingest Tempest weather files into MongoDB automatically, set this in `/etc/mqtt_schedule/runtime.json`:
+
+```json
+"mongo_tempest_ingest_seconds": 3600,
+"mongo_tempest_ingest_run_immediately": true
+```
+
+That means the service ingests the current Tempest station metadata and current station observation files into MongoDB every 3600 seconds, and also performs one ingest immediately when the service starts.
 
 ## Linux Update Flow
 
