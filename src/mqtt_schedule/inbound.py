@@ -26,6 +26,7 @@ class AccessRequestMessageHandler:
         return [
             self._subscription_topic_for("stc_access_request"),
             self._subscription_topic_for("stc_online_status_request"),
+            self._subscription_topic_for("stc_input_status_request"),
         ]
 
     def handle_message(self, message: MQTTInboundMessage) -> None:
@@ -38,6 +39,9 @@ class AccessRequestMessageHandler:
             return
         if parsed_topic.command == "stc_online_status_request":
             self._handle_online_status_request(message, parsed_topic)
+            return
+        if parsed_topic.command == "stc_input_status_request":
+            self._handle_input_status_request(message, parsed_topic)
             return
         self.logger.debug(
             "inbound_message_ignored reason=unsupported_command command=%s topic=%s",
@@ -75,6 +79,29 @@ class AccessRequestMessageHandler:
             "online_status_request_handled source_serial=%s destination_serial=%s response=online reason=requested",
             parsed_topic.source_serial,
             parsed_topic.destination_serial,
+        )
+
+    def _handle_input_status_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        self.logger.info("input_status_request_message_received topic=%s", message.topic)
+        if parsed_topic.destination_serial != self.source_serial:
+            self.logger.debug(
+                "inbound_message_ignored reason=wrong_destination expected=%s actual=%s",
+                self.source_serial,
+                parsed_topic.destination_serial,
+            )
+            return
+
+        self.maintenance_publisher.publish_input_status_response(
+            parsed_topic.source_serial,
+            inputs_category="Input ports unavailable",
+            input_ports=0,
+        )
+        self.logger.info(
+            "input_status_request_handled source_serial=%s destination_serial=%s inputs_category=%s input_ports=%s",
+            parsed_topic.source_serial,
+            parsed_topic.destination_serial,
+            "Input ports unavailable",
+            0,
         )
 
     def _handle_access_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:

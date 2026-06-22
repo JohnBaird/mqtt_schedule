@@ -275,3 +275,26 @@ def test_encode_online_status_and_access_responses_use_legacy_topic_shape() -> N
     )
     assert access_response.payload["granted"] is True
     assert access_response.payload["fullName"] == "John Baird"
+
+
+def test_encode_input_status_response_uses_legacy_topic_shape() -> None:
+    encoder = MQTTCommandEncoder(
+        MQTTBrokerSettings(
+            host="localhost",
+            port=1883,
+            source_serial="281261212083555",
+        )
+    )
+
+    input_response = encoder.encode_input_status_response(
+        "242606363309393",
+        inputs_category="Input ports unavailable",
+        input_ports=0,
+        now=datetime(2026, 6, 20, 21, 5, 0),
+    )
+
+    assert input_response.topic == (
+        "SPV1.0/irrigation/stc_input_status_response/281261212083555/242606363309393"
+    )
+    assert input_response.payload["inputs_category"] == "Input ports unavailable"
+    assert input_response.payload["input_ports"] == 0

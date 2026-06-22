@@ -153,6 +153,27 @@ class MQTTCommandEncoder:
             payload=payload,
         )
 
+    def encode_input_status_response(
+        self,
+        destination: str,
+        *,
+        inputs_category: str = "Input ports unavailable",
+        input_ports: int = 0,
+        now: datetime | None = None,
+    ) -> MQTTCommandMessage:
+        payload = self._base_payload(now or datetime.now())
+        payload.update(
+            {
+                "inputs_category": inputs_category,
+                "input_ports": input_ports,
+            }
+        )
+        return self._message_for_destination(
+            command_name="stc_input_status_response",
+            destination=destination,
+            payload=payload,
+        )
+
     def encode_access_response(
         self,
         destination: str,
@@ -298,6 +319,25 @@ class MQTTMaintenancePublisher:
                     destination,
                     response=response,
                     reason=reason,
+                    now=now,
+                )
+            ]
+        )
+
+    def publish_input_status_response(
+        self,
+        destination: str,
+        *,
+        inputs_category: str = "Input ports unavailable",
+        input_ports: int = 0,
+        now: datetime | None = None,
+    ) -> None:
+        self._publish_messages(
+            [
+                self.encoder.encode_input_status_response(
+                    destination,
+                    inputs_category=inputs_category,
+                    input_ports=input_ports,
                     now=now,
                 )
             ]
