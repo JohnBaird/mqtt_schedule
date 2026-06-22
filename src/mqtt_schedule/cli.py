@@ -1,19 +1,30 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime
 import logging
 
-from .airtable_repositories import FileControllerRepository, FileScheduleRepository
+from .airtable_repositories import (
+    FileControllerRepository,
+    FileScheduleRepository,
+    validate_controller_file,
+    validate_schedule_file,
+)
+from .access_control import AccessDecisionService, FileAccessUserRepository
 from .app import ControllerRepository, FilteredControllerRepository, SchedulerApplication
 from .hostinfo import HostInfoProvider
 from .identity import DeviceIdentity, DeviceIdentitySettings
+from .inbound import AccessRequestMessageHandler
 from .mqtt_adapter import MQTTBrokerSettings, MQTTCommandEncoder, PahoClientFactory, PahoCommandPublisher, StdoutCommandPublisher
+from .mqtt_adapter import MQTTMaintenancePublisher
+from .mqtt_adapter import SPTopic
 from .scheduler import ScheduleEvaluator, SchedulerConfig
 from .service import PeriodicJob, ServiceConfig, ServiceRunner, SignalAwareService, seconds_until_next_minute
 from .settings import RuntimeSettings
 from .weather_adapters import OpenWeatherFileSunTimesProvider, TempestFileRainPolicy
 from .weather_refresh import OpenWeatherRefreshSettings, OpenWeatherRefresher, TempestRefreshSettings, TempestRefresher
+from .domain import AccessRequest
 
 
 def main() -> int:
@@ -26,6 +37,13 @@ def main() -> int:
     parser.add_argument("--now", help="Override current timestamp in ISO format.")
     parser.add_argument("--dry-run", action="store_true", help="Print MQTT messages instead of publishing them.")
     parser.add_argument("--explain", action="store_true", help="Print schedule match explanations for validation.")
+    parser.add_argument(
+        "--validate-airtable-files",
+        action="store_true",
+        help="Validate the file-based Airtable export contract and exit.",
+    )
+    parser.add_argument("--handle-access-request-topic", help="Process one legacy stc_access_request topic and exit.")
+    parser.add_argument("--handle-access-request-payload", help="Process one legacy stc_access_request payload JSON and exit.")
     parser.add_argument(
         "--refresh-weather-now",
         action="store_true",
@@ -76,12 +94,32 @@ def main() -> int:
         )
     )
 
+    access_request_handler = None
+    subscriptions: list[str] = []
+
     if args.dry_run:
         publisher = StdoutCommandPublisher(encoder)
         client = None
     else:
-        client = PahoClientFactory.connect(encoder.settings)
+        access_request_handler = AccessRequestMessageHandler(
+            settings=settings,
+            maintenance_publisher=MQTTMaintenancePublisher(encoder=encoder, client=None),
+            source_serial=source_serial,
+        )
+        subscriptions.append(access_request_handler.subscription_topic)
+        logging.getLogger("mqtt_schedule.cli").info(
+            "inbound_subscription_configured topic=%s",
+            access_request_handler.subscription_topic,
+        )
+        client = PahoClientFactory.connect(
+            encoder.settings,
+            subscriptions=subscriptions,
+            on_message=access_request_handler.handle_message,
+        )
         publisher = PahoCommandPublisher(client=client, encoder=encoder)
+    maintenance_publisher = MQTTMaintenancePublisher(encoder=encoder, client=client)
+    if access_request_handler is not None:
+        access_request_handler.maintenance_publisher = maintenance_publisher
 
     controller_repository: ControllerRepository = build_controller_repository(
         settings=settings,
@@ -100,6 +138,19 @@ def main() -> int:
         )
     else:
         logger.info("commissioning_filter_inactive")
+
+    if args.validate_airtable_files:
+        return _validate_airtable_files(settings)
+
+    if args.handle_access_request_topic or args.handle_access_request_payload:
+        if not args.handle_access_request_topic or not args.handle_access_request_payload:
+            raise SystemExit("--handle-access-request-topic and --handle-access-request-payload must be used together.")
+        return _handle_access_request(
+            settings=settings,
+            maintenance_publisher=maintenance_publisher,
+            topic=args.handle_access_request_topic,
+            payload_json=args.handle_access_request_payload,
+        )
 
     app = SchedulerApplication(
         schedule_repository=FileScheduleRepository(settings.schedule_file),
@@ -125,13 +176,18 @@ def main() -> int:
         refresh_jobs = build_weather_refresh_jobs(
             settings=settings,
         )
+        mqtt_request_jobs = build_mqtt_request_jobs(
+            settings=settings,
+            controller_repository=controller_repository,
+            maintenance_publisher=maintenance_publisher,
+        )
         if args.service:
             if args.refresh_weather_now:
                 _run_weather_refresh_now(refresh_jobs)
             runner = ServiceRunner(
                 app,
                 config=ServiceConfig(run_immediately=args.run_immediately),
-                periodic_jobs=refresh_jobs,
+                periodic_jobs=refresh_jobs + mqtt_request_jobs,
             )
             signals = SignalAwareService(runner)
             signals.install_signal_handlers()
@@ -238,6 +294,146 @@ def _run_weather_refresh_now(jobs: list[PeriodicJob]) -> None:
     logger.info("weather_refresh_now_complete job_count=%s", len(jobs))
 
 
+def _validate_airtable_files(settings: RuntimeSettings) -> int:
+    schedule_summary = validate_schedule_file(settings.schedule_file)
+    controller_summary = validate_controller_file(settings.controller_file)
+    summaries = [schedule_summary, controller_summary]
+
+    for summary in summaries:
+        print(
+            "airtable_file "
+            f"kind={summary.file_kind} "
+            f"path={summary.path} "
+            f"record_count={summary.record_count} "
+            f"valid_count={summary.valid_count} "
+            f"ok={summary.ok}"
+        )
+        for issue in summary.issues:
+            print(
+                "airtable_issue "
+                f"kind={summary.file_kind} "
+                f"severity={issue.severity} "
+                f"message={issue.message}"
+            )
+
+    return 0 if all(summary.ok for summary in summaries) else 1
+
+
+def _handle_access_request(
+    *,
+    settings: RuntimeSettings,
+    maintenance_publisher: MQTTMaintenancePublisher,
+    topic: str,
+    payload_json: str,
+) -> int:
+    parsed_topic = SPTopic.parse(topic)
+    if parsed_topic is None:
+        print("access_request_error reason=invalid_topic")
+        return 1
+    if parsed_topic.command != "stc_access_request":
+        print("access_request_error reason=unsupported_command")
+        return 1
+
+    try:
+        payload = json.loads(payload_json)
+    except json.JSONDecodeError as exc:
+        print(f"access_request_error reason=invalid_payload_json detail={exc}")
+        return 1
+
+    request = AccessRequest(
+        source_serial=parsed_topic.source_serial,
+        destination_serial=parsed_topic.destination_serial,
+        pin_code=_payload_str_or_none(payload.get("pinCode")),
+        pin_number=_payload_str_or_none(payload.get("pinNumber")),
+        card_number=_payload_str_or_none(payload.get("cardNumber")),
+        face_id=_payload_str_or_none(payload.get("faceId")),
+    )
+
+    decision = AccessDecisionService(
+        repository=FileAccessUserRepository(settings.access_users_file),
+        access_groups=list(settings.access_groups),
+    ).decide(request)
+
+    maintenance_publisher.publish_access_response_for_request(request, decision)
+    print(
+        "access_request_result "
+        f"source_serial={request.source_serial} "
+        f"destination_serial={request.destination_serial} "
+        f"granted={decision.granted} "
+        f"full_name={decision.full_name} "
+        f"matched_group={decision.matched_group} "
+        f"matched_credential={decision.matched_credential}"
+    )
+    return 0
+
+
+def build_mqtt_request_jobs(
+    *,
+    settings: RuntimeSettings,
+    controller_repository: ControllerRepository,
+    maintenance_publisher: MQTTMaintenancePublisher,
+) -> list[PeriodicJob]:
+    logger = logging.getLogger("mqtt_schedule.cli")
+    jobs: list[PeriodicJob] = []
+
+    def active_destinations() -> list[str]:
+        return [
+            controller.name_link
+            for controller in controller_repository.list_controllers()
+            if controller.enabled and controller.name_link
+        ]
+
+    def publish_online_status_request() -> None:
+        maintenance_publisher.publish_online_status_request(active_destinations())
+
+    def publish_input_status_request() -> None:
+        maintenance_publisher.publish_input_status_request(active_destinations())
+
+    def publish_temperature_request() -> None:
+        maintenance_publisher.publish_temperature_request(active_destinations())
+
+    mqtt_jobs = [
+        (
+            settings.mqtt_online_status_request_enabled,
+            "mqtt-online-status-request",
+            settings.mqtt_online_status_request_seconds,
+            publish_online_status_request,
+        ),
+        (
+            settings.mqtt_input_status_request_enabled,
+            "mqtt-input-status-request",
+            settings.mqtt_input_status_request_seconds,
+            publish_input_status_request,
+        ),
+        (
+            settings.mqtt_temperature_request_enabled,
+            "mqtt-temperature-request",
+            settings.mqtt_temperature_request_seconds,
+            publish_temperature_request,
+        ),
+    ]
+
+    for enabled, job_id, interval_seconds, fn in mqtt_jobs:
+        if not enabled:
+            logger.info("mqtt_request_disabled job_id=%s", job_id)
+            continue
+        jobs.append(
+            PeriodicJob(
+                job_id=job_id,
+                interval_seconds=interval_seconds,
+                fn=fn,
+                run_immediately=False,
+            )
+        )
+        logger.info(
+            "mqtt_request_configured job_id=%s interval_seconds=%s",
+            job_id,
+            interval_seconds,
+        )
+
+    return jobs
+
+
 def build_controller_repository(
     *,
     settings: RuntimeSettings,
@@ -268,6 +464,12 @@ def resolve_allowed_destinations(
     if configured:
         return configured
     return cli
+
+
+def _payload_str_or_none(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
 
 
 if __name__ == "__main__":

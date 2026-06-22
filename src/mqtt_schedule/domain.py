@@ -79,3 +79,21 @@ class ScheduleExplanation:
     irrigation_reason: str | None
     matched: bool
     skip_reason: str | None
+
+
+@dataclass(frozen=True)
+class AccessRequest:
+    source_serial: str
+    destination_serial: str
+    pin_code: str | None
+    pin_number: str | None
+    card_number: str | None
+    face_id: str | None
+
+
+@dataclass(frozen=True)
+class AccessDecision:
+    granted: bool
+    full_name: str
+    matched_group: str | None
+    matched_credential: str | None

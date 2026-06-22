@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 
 from mqtt_schedule.domain import DueCommand
-from mqtt_schedule.mqtt_adapter import MQTTBrokerSettings, MQTTCommandEncoder, PahoCommandPublisher, RecordingMQTTClient
+from mqtt_schedule.mqtt_adapter import MQTTBrokerSettings, MQTTCommandEncoder, PahoCommandPublisher, RecordingMQTTClient, SPTopic
 
 
 def test_encodes_legacy_mqtt_command_shape() -> None:
@@ -144,3 +144,134 @@ def test_payload_json_preserves_legacy_field_names() -> None:
         "airtableZoneCategory",
         "airtableGroups",
     }
+
+
+def test_sp_topic_uses_legacy_five_segment_shape() -> None:
+    topic = SPTopic(
+        topic_version="SPV1.0",
+        domain="irrigation",
+        command="stc_online_status_request",
+        source_serial="281261212083555",
+        destination_serial="242606363309393",
+    )
+
+    assert topic.as_topic_string() == (
+        "SPV1.0/irrigation/stc_online_status_request/281261212083555/242606363309393"
+    )
+
+
+def test_encode_online_status_request_uses_legacy_topic_shape() -> None:
+    encoder = MQTTCommandEncoder(
+        MQTTBrokerSettings(
+            host="localhost",
+            port=1883,
+            source_serial="281261212083555",
+            session_client_id="6410332930780559595",
+            host_name="john-HP-ProDesk-600-G1-DM",
+            ip_address="192.168.1.53",
+            program_version="MQTT_Schedule v1.0.7",
+        )
+    )
+
+    message = encoder.encode_online_status_request(
+        ["242606363309393"],
+        now=datetime(2026, 6, 20, 21, 5, 0),
+    )[0]
+
+    assert message.topic == (
+        "SPV1.0/irrigation/stc_online_status_request/281261212083555/242606363309393"
+    )
+    assert message.payload["clientId"] == "6410332930780559595"
+    assert message.payload["dateTime"] == "2026/06/20  21:05:00"
+    assert message.payload["unixTime"] == 1782003900
+    assert "onOff" not in message.payload
+
+
+def test_encode_input_and_temperature_requests_use_legacy_topic_shape() -> None:
+    encoder = MQTTCommandEncoder(
+        MQTTBrokerSettings(
+            host="localhost",
+            port=1883,
+            source_serial="281261212083555",
+        )
+    )
+
+    input_request = encoder.encode_input_status_request(
+        ["242606363309393"],
+        now=datetime(2026, 6, 20, 21, 5, 0),
+    )[0]
+    temperature_request = encoder.encode_temperature_request(
+        ["242606363309393"],
+        now=datetime(2026, 6, 20, 21, 5, 0),
+    )[0]
+
+    assert input_request.topic == (
+        "SPV1.0/irrigation/stc_input_status_request/281261212083555/242606363309393"
+    )
+    assert temperature_request.topic == (
+        "SPV1.0/irrigation/stc_temperature_request/281261212083555/242606363309393"
+    )
+
+
+def test_encode_sysinfo_and_config_requests_use_legacy_topic_shape() -> None:
+    encoder = MQTTCommandEncoder(
+        MQTTBrokerSettings(
+            host="localhost",
+            port=1883,
+            source_serial="281261212083555",
+        )
+    )
+
+    sysinfo_request = encoder.encode_sysinfo_request(
+        ["242606363309393"],
+        now=datetime(2026, 6, 20, 21, 5, 0),
+    )[0]
+    config_request = encoder.encode_config_file_request(
+        ["242606363309393"],
+        now=datetime(2026, 6, 20, 21, 5, 0),
+    )[0]
+
+    assert sysinfo_request.topic == (
+        "SPV1.0/irrigation/stc_sysinfo_request/281261212083555/242606363309393"
+    )
+    assert config_request.topic == (
+        "SPV1.0/irrigation/stc_config_file_request/281261212083555/242606363309393"
+    )
+
+
+def test_encode_online_status_and_access_responses_use_legacy_topic_shape() -> None:
+    encoder = MQTTCommandEncoder(
+        MQTTBrokerSettings(
+            host="localhost",
+            port=1883,
+            source_serial="281261212083555",
+        )
+    )
+
+    online_response = encoder.encode_online_status_response(
+        "242606363309393",
+        response="online",
+        reason="requested",
+        now=datetime(2026, 6, 20, 21, 5, 0),
+    )
+    access_response = encoder.encode_access_response(
+        "242606363309393",
+        granted=True,
+        full_name="John Baird",
+        pin_code="1234",
+        pin_number="1",
+        card_number="100",
+        face_id="f-1",
+        now=datetime(2026, 6, 20, 21, 5, 0),
+    )
+
+    assert online_response.topic == (
+        "SPV1.0/irrigation/stc_online_status_response/281261212083555/242606363309393"
+    )
+    assert online_response.payload["response"] == "online"
+    assert online_response.payload["reason"] == "requested"
+    assert access_response.topic == (
+        "SPV1.0/irrigation/stc_access_response/281261212083555/242606363309393"
+    )
+    assert access_response.payload["granted"] is True
+    assert access_response.payload["fullName"] == "John Baird"

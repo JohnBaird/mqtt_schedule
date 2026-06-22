@@ -10,6 +10,7 @@ from pathlib import Path
 class RuntimeSettings:
     schedule_file: Path
     controller_file: Path
+    access_users_file: Path
     openweather_current_file: Path
     openweather_forecast_file: Path
     tempest_data_dir: Path
@@ -33,6 +34,12 @@ class RuntimeSettings:
     mqtt_keepalive: int = 60
     mqtt_username: str | None = None
     mqtt_password: str | None = None
+    mqtt_online_status_request_enabled: bool = True
+    mqtt_input_status_request_enabled: bool = True
+    mqtt_temperature_request_enabled: bool = True
+    mqtt_online_status_request_seconds: int = 60
+    mqtt_input_status_request_seconds: int = 60
+    mqtt_temperature_request_seconds: int = 20 * 60
     mqtt_topic_version: str = "SPV1.0"
     mqtt_domain: str = "irrigation"
     timezone_name: str = "America/New_York"
@@ -41,6 +48,7 @@ class RuntimeSettings:
     use_duration_sunset: bool = False
     program_name: str = "mqtt_schedule"
     program_version: str = "0.1.0"
+    access_groups: tuple[str, ...] = ()
     rain_now_block_mm: float = 2.0
     rain_24h_block_mm: float = 5.0
     rain_48h_block_mm: float = 8.0
@@ -84,6 +92,12 @@ class RuntimeSettings:
         return cls(
             schedule_file=schedule_file,
             controller_file=controller_file,
+            access_users_file=Path(
+                os.environ.get(
+                    "MQTT_SCHEDULE_ACCESS_USERS_FILE",
+                    str(base_dir / "airtable_access_users.json"),
+                )
+            ),
             openweather_current_file=openweather_current_file,
             openweather_forecast_file=openweather_forecast_file,
             tempest_data_dir=tempest_data_dir,
@@ -112,6 +126,12 @@ class RuntimeSettings:
             mqtt_keepalive=int(os.environ.get("MQTT_SCHEDULE_MQTT_KEEPALIVE", "60")),
             mqtt_username=os.environ.get("MQTT_SCHEDULE_MQTT_USERNAME"),
             mqtt_password=os.environ.get("MQTT_SCHEDULE_MQTT_PASSWORD"),
+            mqtt_online_status_request_enabled=_env_bool("MQTT_SCHEDULE_MQTT_ONLINE_STATUS_REQUEST_ENABLED", True),
+            mqtt_input_status_request_enabled=_env_bool("MQTT_SCHEDULE_MQTT_INPUT_STATUS_REQUEST_ENABLED", True),
+            mqtt_temperature_request_enabled=_env_bool("MQTT_SCHEDULE_MQTT_TEMPERATURE_REQUEST_ENABLED", True),
+            mqtt_online_status_request_seconds=int(os.environ.get("MQTT_SCHEDULE_MQTT_ONLINE_STATUS_REQUEST_SECONDS", "60")),
+            mqtt_input_status_request_seconds=int(os.environ.get("MQTT_SCHEDULE_MQTT_INPUT_STATUS_REQUEST_SECONDS", "60")),
+            mqtt_temperature_request_seconds=int(os.environ.get("MQTT_SCHEDULE_MQTT_TEMPERATURE_REQUEST_SECONDS", str(20 * 60))),
             mqtt_topic_version=os.environ.get("MQTT_SCHEDULE_MQTT_TOPIC_VERSION", "SPV1.0"),
             mqtt_domain=os.environ.get("MQTT_SCHEDULE_MQTT_DOMAIN", "irrigation"),
             timezone_name=os.environ.get("MQTT_SCHEDULE_TIMEZONE", "America/New_York"),
@@ -120,6 +140,7 @@ class RuntimeSettings:
             use_duration_sunset=_env_bool("MQTT_SCHEDULE_USE_DURATION_SUNSET", False),
             program_name=os.environ.get("MQTT_SCHEDULE_PROGRAM_NAME", "mqtt_schedule"),
             program_version=os.environ.get("MQTT_SCHEDULE_PROGRAM_VERSION", "0.1.0"),
+            access_groups=_env_csv("MQTT_SCHEDULE_ACCESS_GROUPS"),
             rain_now_block_mm=float(os.environ.get("MQTT_SCHEDULE_RAIN_NOW_BLOCK_MM", "2.0")),
             rain_24h_block_mm=float(os.environ.get("MQTT_SCHEDULE_RAIN_24H_BLOCK_MM", "5.0")),
             rain_48h_block_mm=float(os.environ.get("MQTT_SCHEDULE_RAIN_48H_BLOCK_MM", "8.0")),
@@ -135,6 +156,7 @@ class RuntimeSettings:
         settings = cls(
             schedule_file=Path(data["schedule_file"]),
             controller_file=Path(data["controller_file"]),
+            access_users_file=Path(data.get("access_users_file", "/etc/mqtt_schedule/airtable_access_users.json")),
             openweather_current_file=Path(data["openweather_current_file"]),
             openweather_forecast_file=Path(data["openweather_forecast_file"]),
             tempest_data_dir=Path(data["tempest_data_dir"]),
@@ -158,6 +180,12 @@ class RuntimeSettings:
             mqtt_keepalive=int(data.get("mqtt_keepalive", 60)),
             mqtt_username=data.get("mqtt_username"),
             mqtt_password=data.get("mqtt_password"),
+            mqtt_online_status_request_enabled=bool(data.get("mqtt_online_status_request_enabled", True)),
+            mqtt_input_status_request_enabled=bool(data.get("mqtt_input_status_request_enabled", True)),
+            mqtt_temperature_request_enabled=bool(data.get("mqtt_temperature_request_enabled", True)),
+            mqtt_online_status_request_seconds=int(data.get("mqtt_online_status_request_seconds", 60)),
+            mqtt_input_status_request_seconds=int(data.get("mqtt_input_status_request_seconds", 60)),
+            mqtt_temperature_request_seconds=int(data.get("mqtt_temperature_request_seconds", 20 * 60)),
             mqtt_topic_version=data.get("mqtt_topic_version", "SPV1.0"),
             mqtt_domain=data.get("mqtt_domain", "irrigation"),
             timezone_name=data.get("timezone_name", "America/New_York"),
@@ -166,6 +194,7 @@ class RuntimeSettings:
             use_duration_sunset=bool(data.get("use_duration_sunset", False)),
             program_name=data.get("program_name", "mqtt_schedule"),
             program_version=data.get("program_version", "0.1.0"),
+            access_groups=tuple(data.get("access_groups", [])),
             rain_now_block_mm=float(data.get("rain_now_block_mm", 2.0)),
             rain_24h_block_mm=float(data.get("rain_24h_block_mm", 5.0)),
             rain_48h_block_mm=float(data.get("rain_48h_block_mm", 8.0)),
@@ -178,6 +207,7 @@ class RuntimeSettings:
         return RuntimeSettings(
             schedule_file=_env_path("MQTT_SCHEDULE_SCHEDULE_FILE", self.schedule_file),
             controller_file=_env_path("MQTT_SCHEDULE_CONTROLLER_FILE", self.controller_file),
+            access_users_file=_env_path("MQTT_SCHEDULE_ACCESS_USERS_FILE", self.access_users_file),
             openweather_current_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_CURRENT_FILE", self.openweather_current_file),
             openweather_forecast_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_FORECAST_FILE", self.openweather_forecast_file),
             tempest_data_dir=_env_path("MQTT_SCHEDULE_TEMPEST_DATA_DIR", self.tempest_data_dir),
@@ -210,6 +240,30 @@ class RuntimeSettings:
             mqtt_keepalive=_env_int("MQTT_SCHEDULE_MQTT_KEEPALIVE", self.mqtt_keepalive),
             mqtt_username=os.environ.get("MQTT_SCHEDULE_MQTT_USERNAME", self.mqtt_username),
             mqtt_password=os.environ.get("MQTT_SCHEDULE_MQTT_PASSWORD", self.mqtt_password),
+            mqtt_online_status_request_enabled=_env_bool(
+                "MQTT_SCHEDULE_MQTT_ONLINE_STATUS_REQUEST_ENABLED",
+                self.mqtt_online_status_request_enabled,
+            ),
+            mqtt_input_status_request_enabled=_env_bool(
+                "MQTT_SCHEDULE_MQTT_INPUT_STATUS_REQUEST_ENABLED",
+                self.mqtt_input_status_request_enabled,
+            ),
+            mqtt_temperature_request_enabled=_env_bool(
+                "MQTT_SCHEDULE_MQTT_TEMPERATURE_REQUEST_ENABLED",
+                self.mqtt_temperature_request_enabled,
+            ),
+            mqtt_online_status_request_seconds=_env_int(
+                "MQTT_SCHEDULE_MQTT_ONLINE_STATUS_REQUEST_SECONDS",
+                self.mqtt_online_status_request_seconds,
+            ),
+            mqtt_input_status_request_seconds=_env_int(
+                "MQTT_SCHEDULE_MQTT_INPUT_STATUS_REQUEST_SECONDS",
+                self.mqtt_input_status_request_seconds,
+            ),
+            mqtt_temperature_request_seconds=_env_int(
+                "MQTT_SCHEDULE_MQTT_TEMPERATURE_REQUEST_SECONDS",
+                self.mqtt_temperature_request_seconds,
+            ),
             mqtt_topic_version=os.environ.get("MQTT_SCHEDULE_MQTT_TOPIC_VERSION", self.mqtt_topic_version),
             mqtt_domain=os.environ.get("MQTT_SCHEDULE_MQTT_DOMAIN", self.mqtt_domain),
             timezone_name=os.environ.get("MQTT_SCHEDULE_TIMEZONE", self.timezone_name),
@@ -218,6 +272,7 @@ class RuntimeSettings:
             use_duration_sunset=_env_bool("MQTT_SCHEDULE_USE_DURATION_SUNSET", self.use_duration_sunset),
             program_name=os.environ.get("MQTT_SCHEDULE_PROGRAM_NAME", self.program_name),
             program_version=os.environ.get("MQTT_SCHEDULE_PROGRAM_VERSION", self.program_version),
+            access_groups=_env_csv("MQTT_SCHEDULE_ACCESS_GROUPS") or self.access_groups,
             rain_now_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_NOW_BLOCK_MM", self.rain_now_block_mm),
             rain_24h_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_24H_BLOCK_MM", self.rain_24h_block_mm),
             rain_48h_block_mm=_env_float_with_default("MQTT_SCHEDULE_RAIN_48H_BLOCK_MM", self.rain_48h_block_mm),

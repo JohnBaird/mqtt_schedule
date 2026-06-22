@@ -50,6 +50,7 @@ Useful commands:
 ## Project Layout
 
 - `docs/legacy-system-analysis.md`
+- `docs/airtable-file-contract.md`
 - `src/mqtt_schedule/domain.py`
 - `src/mqtt_schedule/scheduler.py`
 - `src/mqtt_schedule/app.py`
@@ -81,6 +82,7 @@ Configuration layout:
 - The sample files are:
   - [runtime.example.json](E:\Development\mqtt_schedule\deploy\runtime.example.json:1)
   - [mqtt_schedule.env.example](E:\Development\mqtt_schedule\deploy\mqtt_schedule.env.example:1)
+- The Airtable export file contract is documented in [airtable-file-contract.md](E:\Development\mqtt_schedule\docs\airtable-file-contract.md:1).
 
 Planned placement for connection information:
 
@@ -106,6 +108,7 @@ Service runtime:
 - The service loop fires once per minute on the wall-clock minute boundary.
 - The same service loop can also refresh OpenWeather and Tempest files on independent intervals when credentials are configured.
 - `python -m mqtt_schedule --refresh-weather-now` forces the configured weather refresh jobs to run immediately and update the local files.
+- `python -m mqtt_schedule --validate-airtable-files` validates the file-based Airtable contract and exits.
 - `SIGINT` and `SIGTERM` trigger graceful shutdown.
 - A sample `systemd` unit is included at [mqtt_schedule.service](E:\Development\mqtt_schedule\deploy\mqtt_schedule.service:1).
 
@@ -139,6 +142,12 @@ The installer intentionally:
 3. Edit `/etc/mqtt_schedule/runtime.json`.
 4. Edit `/etc/mqtt_schedule/mqtt_schedule.env`.
 5. Place or sync the Airtable export files into `/etc/mqtt_schedule/`.
+   Validate them first with:
+
+```bash
+/opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --validate-airtable-files
+```
+
 6. Run a safe dry-run first:
 
 ```bash
@@ -173,3 +182,65 @@ For live weather commissioning:
 ```bash
 /opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --refresh-weather-now --dry-run
 ```
+
+## Staging Venv Recovery
+
+During Linux commissioning, the staging virtual environment at `/home/john/mqtt_schedule_temp/.venv` can become polluted with broken package leftovers if installs or uninstalls were previously run under mixed users such as `john` and `root`.
+
+Symptoms:
+
+- `pip install .` succeeds, but prints warnings such as:
+  - `WARNING: Ignoring invalid distribution -`
+  - `WARNING: Ignoring invalid distribution -qtt-schedule`
+- The actual service under `/opt/mqtt_schedule/.venv` can still be healthy while only the staging venv is noisy.
+
+Recommended clean install flow for the staging venv:
+
+```bash
+deactivate 2>/dev/null || true
+rm -rf /home/john/mqtt_schedule_temp/.venv
+python3 -m venv /home/john/mqtt_schedule_temp/.venv
+source /home/john/mqtt_schedule_temp/.venv/bin/activate
+/home/john/mqtt_schedule_temp/.venv/bin/python -m pip install --upgrade pip
+/home/john/mqtt_schedule_temp/.venv/bin/python -m pip install /home/john/mqtt_schedule_temp
+```
+
+Important detail:
+
+- Prefer `/home/john/mqtt_schedule_temp/.venv/bin/python -m pip ...` over plain `pip ...` so the command always targets the intended venv.
+
+If the warnings still appear, inspect `site-packages` for junk directories:
+
+```bash
+find /home/john/mqtt_schedule_temp/.venv/lib/python3.10/site-packages -maxdepth 1 \( -name '-*' -o -name '~*' -o -name '*qtt_schedule*' \) -ls
+```
+
+If the output shows leftovers such as these:
+
+- `~qtt_schedule`
+- `~qtt_schedule-0.1.0.dist-info`
+- `~-tt_schedule`
+- `~-tt_schedule-0.1.0.dist-info`
+
+remove them with `sudo` because they may be owned by `root`:
+
+```bash
+sudo rm -rf /home/john/mqtt_schedule_temp/.venv/lib/python3.10/site-packages/~qtt_schedule
+sudo rm -rf /home/john/mqtt_schedule_temp/.venv/lib/python3.10/site-packages/~qtt_schedule-0.1.0.dist-info
+sudo rm -rf /home/john/mqtt_schedule_temp/.venv/lib/python3.10/site-packages/~-tt_schedule
+sudo rm -rf /home/john/mqtt_schedule_temp/.venv/lib/python3.10/site-packages/~-tt_schedule-0.1.0.dist-info
+```
+
+Verify the junk is gone:
+
+```bash
+find /home/john/mqtt_schedule_temp/.venv/lib/python3.10/site-packages -maxdepth 1 \( -name '-*' -o -name '~*' -o -name '*qtt_schedule*' \) -ls
+```
+
+If that final `find` prints nothing, reinstall once more:
+
+```bash
+/home/john/mqtt_schedule_temp/.venv/bin/python -m pip install /home/john/mqtt_schedule_temp
+```
+
+After the cleanup succeeds, the install should complete without the invalid-distribution warnings.
