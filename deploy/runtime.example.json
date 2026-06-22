@@ -29,6 +29,8 @@
   "mongo_col_ingestion_runs": "ingestion_runs",
   "mongo_connect_timeout_ms": 3000,
   "mongo_server_selection_timeout_ms": 3000,
+  "mongo_openweather_ingest_seconds": 10800,
+  "mongo_openweather_ingest_run_immediately": false,
   "mongo_tempest_ingest_seconds": 3600,
   "mongo_tempest_ingest_run_immediately": false,
   "tempest_station_id": 201749,

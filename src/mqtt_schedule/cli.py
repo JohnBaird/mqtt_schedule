@@ -20,6 +20,10 @@ from .controller_status import ControllerStatusStore
 from .csv_reporting import LegacyCsvRecorder
 from .hostinfo import HostInfoProvider
 from .identity import DeviceIdentity, DeviceIdentitySettings
+from .mongo import MongoDatabase
+from .mongo_ingestion import MongoIngestionRunRepository
+from .mongo_openweather import OpenWeatherMongoIngestService
+from .mongo_tempest import TempestMongoIngestService
 from .inbound import AccessRequestMessageHandler
 from .mqtt_adapter import AccessResponseRequestContext, MQTTBrokerSettings, MQTTCommandEncoder, PahoClientFactory, PahoCommandPublisher, StdoutCommandPublisher
 from .mqtt_adapter import MQTTMaintenancePublisher
@@ -201,6 +205,12 @@ def main() -> int:
         airtable_sync_jobs = build_airtable_sync_jobs(
             settings=settings,
         )
+        openweather_mongo_ingest_jobs = build_openweather_mongo_ingest_jobs(
+            settings=settings,
+        )
+        tempest_mongo_ingest_jobs = build_tempest_mongo_ingest_jobs(
+            settings=settings,
+        )
         mqtt_request_jobs = build_mqtt_request_jobs(
             settings=settings,
             controller_repository=controller_repository,
@@ -216,7 +226,7 @@ def main() -> int:
             runner = ServiceRunner(
                 app,
                 config=ServiceConfig(run_immediately=args.run_immediately),
-                periodic_jobs=refresh_jobs + airtable_sync_jobs + mqtt_request_jobs + controller_status_jobs,
+                periodic_jobs=refresh_jobs + airtable_sync_jobs + openweather_mongo_ingest_jobs + tempest_mongo_ingest_jobs + mqtt_request_jobs + controller_status_jobs,
             )
             signals = SignalAwareService(runner)
             signals.install_signal_handlers()
@@ -342,6 +352,96 @@ def build_airtable_sync_jobs(
             interval_seconds=settings.airtable_sync_seconds,
             fn=sync_airtable,
             run_immediately=settings.airtable_sync_run_immediately,
+        )
+    ]
+
+
+def build_tempest_mongo_ingest_jobs(
+    *,
+    settings: RuntimeSettings,
+) -> list[PeriodicJob]:
+    logger = logging.getLogger("mqtt_schedule.cli")
+    if not settings.mongo_uri or not settings.mongo_db:
+        logger.info("tempest_mongo_ingest_disabled reason=missing_mongo_configuration")
+        return []
+    if settings.mongo_tempest_ingest_seconds <= 0:
+        logger.info(
+            "tempest_mongo_ingest_disabled reason=non_positive_interval interval_seconds=%s",
+            settings.mongo_tempest_ingest_seconds,
+        )
+        return []
+
+    def ingest_tempest() -> None:
+        database = MongoDatabase(settings)
+        try:
+            database.ensure_indexes()
+            collections = database.collections()
+            service = TempestMongoIngestService(
+                stations_collection=collections.stations,
+                tempest_flow_collection=collections.tempest_flow,
+                ingestion_runs=MongoIngestionRunRepository(collections.ingestion_runs),
+            )
+            service.ingest_directory(settings.tempest_data_dir)
+        finally:
+            database.close()
+
+    logger.info(
+        "tempest_mongo_ingest_configured interval_seconds=%s run_immediately=%s",
+        settings.mongo_tempest_ingest_seconds,
+        settings.mongo_tempest_ingest_run_immediately,
+    )
+    return [
+        PeriodicJob(
+            job_id="tempest-mongo-ingest",
+            interval_seconds=settings.mongo_tempest_ingest_seconds,
+            fn=ingest_tempest,
+            run_immediately=settings.mongo_tempest_ingest_run_immediately,
+        )
+    ]
+
+
+def build_openweather_mongo_ingest_jobs(
+    *,
+    settings: RuntimeSettings,
+) -> list[PeriodicJob]:
+    logger = logging.getLogger("mqtt_schedule.cli")
+    if not settings.mongo_uri or not settings.mongo_db:
+        logger.info("openweather_mongo_ingest_disabled reason=missing_mongo_configuration")
+        return []
+    if settings.mongo_openweather_ingest_seconds <= 0:
+        logger.info(
+            "openweather_mongo_ingest_disabled reason=non_positive_interval interval_seconds=%s",
+            settings.mongo_openweather_ingest_seconds,
+        )
+        return []
+
+    def ingest_openweather() -> None:
+        database = MongoDatabase(settings)
+        try:
+            database.ensure_indexes()
+            collections = database.collections()
+            service = OpenWeatherMongoIngestService(
+                open_weather_collection=collections.open_weather,
+                ingestion_runs=MongoIngestionRunRepository(collections.ingestion_runs),
+            )
+            service.ingest_files(
+                current_file=settings.openweather_current_file,
+                forecast_file=settings.openweather_forecast_file,
+            )
+        finally:
+            database.close()
+
+    logger.info(
+        "openweather_mongo_ingest_configured interval_seconds=%s run_immediately=%s",
+        settings.mongo_openweather_ingest_seconds,
+        settings.mongo_openweather_ingest_run_immediately,
+    )
+    return [
+        PeriodicJob(
+            job_id="openweather-mongo-ingest",
+            interval_seconds=settings.mongo_openweather_ingest_seconds,
+            fn=ingest_openweather,
+            run_immediately=settings.mongo_openweather_ingest_run_immediately,
         )
     ]
 

@@ -57,6 +57,9 @@ This repository currently contains:
   - legacy-compatible collection naming
   - connection/index management
   - ingestion audit record persistence
+- OpenWeather MongoDB ingestion for:
+  - `open_weather`
+  - `ingestion_runs`
 - Tempest MongoDB ingestion for:
   - `stations`
   - `tempest_flow`
@@ -64,7 +67,7 @@ This repository currently contains:
 
 Still intentionally incomplete:
 
-- OpenWeather MongoDB ingestion and DB-backed weather query/decision responsibilities
+- DB-backed weather query/decision responsibilities
 - authoritative upstream producer for the Airtable JSON exports
 
 ## Local Python Runtime
@@ -240,6 +243,11 @@ Current Airtable sync behavior:
 
 Current MongoDB behavior:
 
+- service mode can ingest OpenWeather weather files into MongoDB using `mongo_openweather_ingest_seconds`
+- the OpenWeather ingest preserves the legacy collection shapes for:
+  - `open_weather`
+  - `ingestion_runs`
+- OpenWeather ingest reads the same `ow_records_current.json` and `ow_records_forecast.json` files the Linux service already refreshes
 - service mode can ingest Tempest weather files into MongoDB using `mongo_tempest_ingest_seconds`
 - the Tempest ingest preserves the legacy collection shapes for:
   - `stations`
@@ -395,6 +403,15 @@ If you want the running service to ingest Tempest weather files into MongoDB aut
 ```
 
 That means the service ingests the current Tempest station metadata and current station observation files into MongoDB every 3600 seconds, and also performs one ingest immediately when the service starts.
+
+If you want the running service to ingest OpenWeather files into MongoDB automatically, set this in `/etc/mqtt_schedule/runtime.json`:
+
+```json
+"mongo_openweather_ingest_seconds": 10800,
+"mongo_openweather_ingest_run_immediately": true
+```
+
+That means the service ingests `ow_records_current.json` and `ow_records_forecast.json` into MongoDB every 10800 seconds, and also performs one ingest immediately when the service starts.
 
 ## Linux Update Flow
 

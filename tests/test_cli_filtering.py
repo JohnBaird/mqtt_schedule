@@ -11,6 +11,8 @@ from mqtt_schedule.cli import (
     _validate_airtable_files,
     build_airtable_sync_jobs,
     build_mqtt_request_jobs,
+    build_openweather_mongo_ingest_jobs,
+    build_tempest_mongo_ingest_jobs,
     build_weather_refresh_jobs,
     resolve_allowed_destinations,
 )
@@ -162,6 +164,86 @@ def test_build_airtable_sync_jobs_returns_empty_when_not_configured(tmp_path: Pa
     )
 
     jobs = build_airtable_sync_jobs(settings=settings)
+
+    assert jobs == []
+
+
+def test_build_tempest_mongo_ingest_jobs_uses_runtime_settings(tmp_path: Path) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        mongo_uri="mongodb://127.0.0.1:27017",
+        mongo_db="homeWeather",
+        mongo_tempest_ingest_seconds=300,
+        mongo_tempest_ingest_run_immediately=True,
+    )
+
+    jobs = build_tempest_mongo_ingest_jobs(settings=settings)
+
+    assert [job.job_id for job in jobs] == ["tempest-mongo-ingest"]
+    assert [job.interval_seconds for job in jobs] == [300]
+    assert all(job.run_immediately for job in jobs)
+
+
+def test_build_openweather_mongo_ingest_jobs_uses_runtime_settings(tmp_path: Path) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        mongo_uri="mongodb://127.0.0.1:27017",
+        mongo_db="homeWeather",
+        mongo_openweather_ingest_seconds=900,
+        mongo_openweather_ingest_run_immediately=True,
+    )
+
+    jobs = build_openweather_mongo_ingest_jobs(settings=settings)
+
+    assert [job.job_id for job in jobs] == ["openweather-mongo-ingest"]
+    assert [job.interval_seconds for job in jobs] == [900]
+    assert all(job.run_immediately for job in jobs)
+
+
+def test_build_openweather_mongo_ingest_jobs_returns_empty_when_not_configured(tmp_path: Path) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+    )
+
+    jobs = build_openweather_mongo_ingest_jobs(settings=settings)
+
+    assert jobs == []
+
+
+def test_build_tempest_mongo_ingest_jobs_returns_empty_when_not_configured(tmp_path: Path) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+    )
+
+    jobs = build_tempest_mongo_ingest_jobs(settings=settings)
 
     assert jobs == []
 
