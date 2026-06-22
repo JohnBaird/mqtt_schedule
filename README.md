@@ -53,10 +53,14 @@ This repository currently contains:
   - `stc_temperature_response`
   - `stc_transaction_response`
 - File-backed OpenWeather/Tempest refresh jobs for Linux deployment.
+- MongoDB foundation for:
+  - legacy-compatible collection naming
+  - connection/index management
+  - ingestion audit record persistence
 
 Still intentionally incomplete:
 
-- MongoDB ingestion/history responsibilities
+- MongoDB weather document ingestion and query responsibilities
 - authoritative upstream producer for the Airtable JSON exports
 
 ## Local Python Runtime
@@ -119,6 +123,8 @@ Planned placement for connection information:
 - Airtable API key: `mqtt_schedule.env`
 - OpenWeather API key: `mqtt_schedule.env`
 - Tempest token: `mqtt_schedule.env`
+- Mongo database name and collection names: `runtime.json`
+- Mongo connection URI and credentials: `mqtt_schedule.env`
 - controller sysinfo snapshots: `clients_sysinfo_dir` in `runtime.json`
 - CSV report paths and rotation settings: `runtime.json`
 - Persisted device identity: `/var/lib/mqtt_schedule/device_serial.txt`
@@ -126,6 +132,32 @@ Planned placement for connection information:
 
 This split is intentional so we do not keep secrets in the main checked-in config file.
 The MQTT topic source serial is derived from machine identity and persisted as runtime state, not edited as normal config.
+
+## Database Purpose
+
+The MongoDB database exists for three distinct reasons:
+
+- irrigation decision support
+  - preserve observed rain history
+  - preserve forecast data we can use to block irrigation when future rain is likely
+- historical analysis
+  - keep past weather conditions for later tuning of irrigation formulas and thresholds
+- graph/report backing store
+  - provide structured weather history for a separate third-party graphing system
+
+Migration rule for Mongo data:
+
+- preserve the legacy field categories and metric blocks first
+- preserve raw payloads alongside normalized fields
+- do not redesign units during migration just to make them cleaner
+- postpone any inches/mm or other unit-standardization decisions until after we can compare old and new stored data side by side
+
+Legacy-compatible Mongo collections:
+
+- `stations`
+- `tempest_flow`
+- `open_weather`
+- `ingestion_runs`
 
 ## Runtime Files
 
@@ -455,6 +487,7 @@ Recent history from git:
 - `c277ade` Add service-safe commissioning destination filter
 - `b9adea0` Initial professional rewrite foundation
 
+- '55fa81b' Add periodic Airtable sync jobs
 - '0152acf' Add controller online recovery threshold                                                          
 - 'a4519a3' Log controller offline timeout events
 - '48e4343' Preserve access request IDs across response and CSV

@@ -39,6 +39,17 @@ class RuntimeSettings:
     airtable_access_users_table: str = "access-users"
     airtable_sync_seconds: int = 15 * 60
     airtable_sync_run_immediately: bool = False
+    mongo_uri: str | None = None
+    mongo_db: str | None = None
+    mongo_authenticate: bool = False
+    mongo_username: str | None = None
+    mongo_password: str | None = None
+    mongo_col_stations: str = "stations"
+    mongo_col_open_weather: str = "open_weather"
+    mongo_col_tempest_flow: str = "tempest_flow"
+    mongo_col_ingestion_runs: str = "ingestion_runs"
+    mongo_connect_timeout_ms: int = 3000
+    mongo_server_selection_timeout_ms: int = 3000
     tempest_base_url: str = "https://swd.weatherflow.com/swd/rest"
     tempest_token: str | None = None
     weather_refresh_openweather_seconds: int = 3 * 3600
@@ -192,6 +203,19 @@ class RuntimeSettings:
             airtable_access_users_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE", "access-users"),
             airtable_sync_seconds=int(os.environ.get("MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS", str(15 * 60))),
             airtable_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY", False),
+            mongo_uri=os.environ.get("MQTT_SCHEDULE_MONGO_URI"),
+            mongo_db=os.environ.get("MQTT_SCHEDULE_MONGO_DB"),
+            mongo_authenticate=_env_bool("MQTT_SCHEDULE_MONGO_AUTHENTICATE", False),
+            mongo_username=os.environ.get("MQTT_SCHEDULE_MONGO_USERNAME"),
+            mongo_password=os.environ.get("MQTT_SCHEDULE_MONGO_PASSWORD"),
+            mongo_col_stations=os.environ.get("MQTT_SCHEDULE_MONGO_COL_STATIONS", "stations"),
+            mongo_col_open_weather=os.environ.get("MQTT_SCHEDULE_MONGO_COL_OPEN_WEATHER", "open_weather"),
+            mongo_col_tempest_flow=os.environ.get("MQTT_SCHEDULE_MONGO_COL_TEMPEST_FLOW", "tempest_flow"),
+            mongo_col_ingestion_runs=os.environ.get("MQTT_SCHEDULE_MONGO_COL_INGESTION_RUNS", "ingestion_runs"),
+            mongo_connect_timeout_ms=int(os.environ.get("MQTT_SCHEDULE_MONGO_CONNECT_TIMEOUT_MS", "3000")),
+            mongo_server_selection_timeout_ms=int(
+                os.environ.get("MQTT_SCHEDULE_MONGO_SERVER_SELECTION_TIMEOUT_MS", "3000")
+            ),
             tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", "https://swd.weatherflow.com/swd/rest"),
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN"),
             weather_refresh_openweather_seconds=int(os.environ.get("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", str(3 * 3600))),
@@ -270,6 +294,17 @@ class RuntimeSettings:
             airtable_access_users_table=data.get("airtable_access_users_table", "access-users"),
             airtable_sync_seconds=int(data.get("airtable_sync_seconds", 15 * 60)),
             airtable_sync_run_immediately=bool(data.get("airtable_sync_run_immediately", False)),
+            mongo_uri=data.get("mongo_uri"),
+            mongo_db=data.get("mongo_db"),
+            mongo_authenticate=bool(data.get("mongo_authenticate", False)),
+            mongo_username=data.get("mongo_username"),
+            mongo_password=data.get("mongo_password"),
+            mongo_col_stations=data.get("mongo_col_stations", "stations"),
+            mongo_col_open_weather=data.get("mongo_col_open_weather", "open_weather"),
+            mongo_col_tempest_flow=data.get("mongo_col_tempest_flow", "tempest_flow"),
+            mongo_col_ingestion_runs=data.get("mongo_col_ingestion_runs", "ingestion_runs"),
+            mongo_connect_timeout_ms=int(data.get("mongo_connect_timeout_ms", 3000)),
+            mongo_server_selection_timeout_ms=int(data.get("mongo_server_selection_timeout_ms", 3000)),
             tempest_base_url=data.get("tempest_base_url", "https://swd.weatherflow.com/swd/rest"),
             tempest_token=data.get("tempest_token"),
             weather_refresh_openweather_seconds=int(data.get("weather_refresh_openweather_seconds", 3 * 3600)),
@@ -363,6 +398,38 @@ class RuntimeSettings:
             airtable_sync_run_immediately=_env_bool(
                 "MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY",
                 self.airtable_sync_run_immediately,
+            ),
+            mongo_uri=os.environ.get("MQTT_SCHEDULE_MONGO_URI", self.mongo_uri),
+            mongo_db=os.environ.get("MQTT_SCHEDULE_MONGO_DB", self.mongo_db),
+            mongo_authenticate=_env_bool(
+                "MQTT_SCHEDULE_MONGO_AUTHENTICATE",
+                self.mongo_authenticate,
+            ),
+            mongo_username=os.environ.get("MQTT_SCHEDULE_MONGO_USERNAME", self.mongo_username),
+            mongo_password=os.environ.get("MQTT_SCHEDULE_MONGO_PASSWORD", self.mongo_password),
+            mongo_col_stations=os.environ.get(
+                "MQTT_SCHEDULE_MONGO_COL_STATIONS",
+                self.mongo_col_stations,
+            ),
+            mongo_col_open_weather=os.environ.get(
+                "MQTT_SCHEDULE_MONGO_COL_OPEN_WEATHER",
+                self.mongo_col_open_weather,
+            ),
+            mongo_col_tempest_flow=os.environ.get(
+                "MQTT_SCHEDULE_MONGO_COL_TEMPEST_FLOW",
+                self.mongo_col_tempest_flow,
+            ),
+            mongo_col_ingestion_runs=os.environ.get(
+                "MQTT_SCHEDULE_MONGO_COL_INGESTION_RUNS",
+                self.mongo_col_ingestion_runs,
+            ),
+            mongo_connect_timeout_ms=_env_int(
+                "MQTT_SCHEDULE_MONGO_CONNECT_TIMEOUT_MS",
+                self.mongo_connect_timeout_ms,
+            ),
+            mongo_server_selection_timeout_ms=_env_int(
+                "MQTT_SCHEDULE_MONGO_SERVER_SELECTION_TIMEOUT_MS",
+                self.mongo_server_selection_timeout_ms,
             ),
             tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", self.tempest_base_url),
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN", self.tempest_token),

@@ -29,6 +29,13 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.airtable_access_users_table == "access-users"
     assert settings.airtable_sync_seconds == 900
     assert settings.airtable_sync_run_immediately is False
+    assert settings.mongo_db == "homeWeather"
+    assert settings.mongo_col_stations == "stations"
+    assert settings.mongo_col_open_weather == "open_weather"
+    assert settings.mongo_col_tempest_flow == "tempest_flow"
+    assert settings.mongo_col_ingestion_runs == "ingestion_runs"
+    assert settings.mongo_connect_timeout_ms == 3000
+    assert settings.mongo_server_selection_timeout_ms == 3000
     assert settings.commissioning_only_destinations == ()
     assert settings.mqtt_host == "localhost"
     assert settings.mqtt_port == 1883
@@ -91,6 +98,7 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
   "openweather_lat": 33.1,
   "openweather_lon": -84.1,
   "airtable_sync_seconds": 900,
+  "mongo_db": "homeWeather",
   "weather_refresh_openweather_seconds": 10800,
   "weather_refresh_tempest_seconds": 3600
 }
@@ -101,6 +109,10 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
     monkeypatch.setenv("MQTT_SCHEDULE_TEMPEST_TOKEN", "env-tempest-token")
     monkeypatch.setenv("MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS", "300")
     monkeypatch.setenv("MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY", "true")
+    monkeypatch.setenv("MQTT_SCHEDULE_MONGO_URI", "mongodb://127.0.0.1:27017")
+    monkeypatch.setenv("MQTT_SCHEDULE_MONGO_AUTHENTICATE", "true")
+    monkeypatch.setenv("MQTT_SCHEDULE_MONGO_USERNAME", "dbuser")
+    monkeypatch.setenv("MQTT_SCHEDULE_MONGO_PASSWORD", "dbpass")
     monkeypatch.setenv("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", "300")
     monkeypatch.setenv("MQTT_SCHEDULE_TEMPEST_REFRESH_SECONDS", "600")
     monkeypatch.setenv("MQTT_SCHEDULE_WEATHER_REFRESH_RUN_IMMEDIATELY", "true")
@@ -111,6 +123,11 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
     assert settings.tempest_token == "env-tempest-token"
     assert settings.airtable_sync_seconds == 300
     assert settings.airtable_sync_run_immediately is True
+    assert settings.mongo_uri == "mongodb://127.0.0.1:27017"
+    assert settings.mongo_db == "homeWeather"
+    assert settings.mongo_authenticate is True
+    assert settings.mongo_username == "dbuser"
+    assert settings.mongo_password == "dbpass"
     assert settings.weather_refresh_openweather_seconds == 300
     assert settings.weather_refresh_tempest_seconds == 600
     assert settings.weather_refresh_run_immediately is True
