@@ -114,6 +114,8 @@ Planned placement for connection information:
 
 - MQTT broker host/port and scheduling behavior: `runtime.json`
 - MQTT username/password: `mqtt_schedule.env`
+- Airtable base URL/base id/table names: `runtime.json`
+- Airtable API key: `mqtt_schedule.env`
 - OpenWeather API key: `mqtt_schedule.env`
 - Tempest token: `mqtt_schedule.env`
 - controller sysinfo snapshots: `clients_sysinfo_dir` in `runtime.json`
@@ -151,6 +153,12 @@ Current inbound MQTT behavior:
 - `stc_config_file_response` is consumed and its `sysConfig` payload is written to `clients_sysinfo_dir`.
 - `stc_transaction_response` is consumed, logged, and appended to the legacy-style transaction CSV.
 - `stc_online_status_response` with `reason="restarted"` automatically triggers `stc_config_file_request` back to that controller.
+
+Current Airtable sync behavior:
+
+- `python -m mqtt_schedule --sync-airtable-now` fetches controller, schedule, and access-user exports from Airtable into the local JSON contract files.
+- if `airtable_schedule_data.json`, `airtable_config_data.json`, or `airtable_access_users.json` is missing at startup, the service immediately attempts an Airtable sync before continuing.
+- identical Airtable payloads do not overwrite the existing local files.
 
 CSV reporting settings:
 
@@ -194,6 +202,12 @@ The installer intentionally:
 
 ```bash
 /opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --validate-airtable-files
+```
+
+   Or fetch them directly from Airtable:
+
+```bash
+/opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --sync-airtable-now
 ```
 
 6. Run a safe dry-run first:
@@ -331,3 +345,29 @@ If that final `find` prints nothing, reinstall once more:
 ```
 
 After the cleanup succeeds, the install should complete without the invalid-distribution warnings.
+
+## Update History
+
+Keep this section at the end of the README and update it whenever behavior changes in a meaningful way. The format should stay lightweight: short commit hash plus one-line summary.
+
+Recent history from git:
+
+- `7c3fd0f` Request config file after controller restart
+- `dda9aa1` Add legacy CSV reporting for inbound responses
+- `ebc1081` Handle inbound transaction responses
+- `62b3e22` Update README for current Linux and MQTT behavior
+- `94e6cd3` Handle config file responses
+- `bbef50a` Handle inbound temperature responses
+- `b7c146e` Handle inbound controller status responses
+- `ba30883` Handle inbound input status requests
+- `f6eaaa1` Handle inbound online status requests
+- `1266cd5` Fail safe on missing access user data
+- `866c548` Add inbound MQTT callback diagnostics
+- `640c7eb` Add inbound MQTT access-request handler
+- `8db6461` Log service startup through logger
+- `1d544a6` Improve service shutdown behavior
+- `44ff089` Harden Linux install permissions
+- `4c4bc04` Enable live weather refresh commissioning
+- `d2c3a21` Add service commissioning logs
+- `c277ade` Add service-safe commissioning destination filter
+- `b9adea0` Initial professional rewrite foundation

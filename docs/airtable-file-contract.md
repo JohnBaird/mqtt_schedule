@@ -2,10 +2,11 @@
 
 The current `mqtt_schedule` rewrite treats Airtable exports as a file-based upstream contract.
 
-This means `mqtt_schedule` does not yet fetch Airtable directly. Instead, another process or manual export step must keep these files current:
+This means the scheduler runtime does not treat Airtable as its day-to-day source of truth. Instead, a separate sync step produces local JSON files that the scheduler consumes.
 
 - `/etc/mqtt_schedule/airtable_schedule_data.json`
 - `/etc/mqtt_schedule/airtable_config_data.json`
+- `/etc/mqtt_schedule/airtable_access_users.json`
 
 The scheduler service consumes those files as its source of truth.
 
@@ -19,6 +20,22 @@ This keeps the scheduler service focused on:
 - running the Linux service loop
 
 It also lets us replace the legacy system incrementally instead of mixing Airtable API concerns into the already-working runtime path.
+
+### Current Sync Behavior
+
+The rewrite now includes a separate Airtable sync path:
+
+- manual sync:
+
+```bash
+/opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --sync-airtable-now
+```
+
+- startup safety:
+  if any of the three required Airtable files are missing when `mqtt_schedule` starts, it immediately attempts an Airtable sync before continuing
+
+- no-op overwrite protection:
+  if the fetched Airtable payload is identical to the current local JSON file, the file is left untouched instead of being rewritten
 
 ### Required Top-Level Shape
 
@@ -132,10 +149,46 @@ Minimal valid example:
 
 Recommended production ownership:
 
-- a separate Airtable export/sync process owns producing these two JSON files
+- a separate Airtable export/sync process owns producing these three JSON files
 - `mqtt_schedule` owns consuming and validating them
 
 This keeps the scheduler service stable while the upstream export mechanism evolves independently.
+
+### Access Users Export Contract
+
+Expected file:
+
+- `/etc/mqtt_schedule/airtable_access_users.json`
+
+Fields used by access control:
+
+- `firstName`
+- `lastName`
+- `enabled`
+- `accessGroups`
+- `pinCode`
+- `pinNumber`
+- `cardNumber`
+- `faceId`
+
+Minimal valid example:
+
+```json
+{
+  "records": [
+    {
+      "id": "recAccess1",
+      "fields": {
+        "firstName": "John",
+        "lastName": "Baird",
+        "enabled": "true",
+        "accessGroups": ["group1"],
+        "pinNumber": "12345"
+      }
+    }
+  ]
+}
+```
 
 ### Validation Command
 

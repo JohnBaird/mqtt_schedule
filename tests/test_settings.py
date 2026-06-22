@@ -18,6 +18,11 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.openweather_current_file.as_posix() == "/etc/mqtt_schedule/ow_records_current.json"
     assert settings.tempest_data_dir.as_posix() == "/etc/mqtt_schedule/tempest_weather_data"
     assert settings.device_serial_file.as_posix() == "/var/lib/mqtt_schedule/device_serial.txt"
+    assert settings.airtable_base_url == "https://api.airtable.com/v0"
+    assert settings.airtable_base_id == "appUSmE6ODKXkqLh3"
+    assert settings.airtable_controller_table == "irrigation-config"
+    assert settings.airtable_schedule_table == "irrigation-schedule"
+    assert settings.airtable_access_users_table == "access-users"
     assert settings.commissioning_only_destinations == ()
     assert settings.mqtt_host == "localhost"
     assert settings.mqtt_port == 1883

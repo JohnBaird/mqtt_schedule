@@ -4,15 +4,18 @@ import argparse
 import json
 from datetime import datetime
 import logging
+from pathlib import Path
 
 from .airtable_repositories import (
     FileControllerRepository,
     FileScheduleRepository,
+    validate_access_users_file,
     validate_controller_file,
     validate_schedule_file,
 )
 from .access_control import AccessDecisionService, FileAccessUserRepository
 from .app import ControllerRepository, FilteredControllerRepository, SchedulerApplication
+from .airtable_sync import AirtableSyncService
 from .csv_reporting import LegacyCsvRecorder
 from .hostinfo import HostInfoProvider
 from .identity import DeviceIdentity, DeviceIdentitySettings
@@ -43,6 +46,11 @@ def main() -> int:
         action="store_true",
         help="Validate the file-based Airtable export contract and exit.",
     )
+    parser.add_argument(
+        "--sync-airtable-now",
+        action="store_true",
+        help="Fetch Airtable exports now and update local contract files before exiting.",
+    )
     parser.add_argument("--handle-access-request-topic", help="Process one legacy stc_access_request topic and exit.")
     parser.add_argument("--handle-access-request-payload", help="Process one legacy stc_access_request payload JSON and exit.")
     parser.add_argument(
@@ -61,6 +69,9 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = RuntimeSettings.from_json_file(args.config) if args.config else RuntimeSettings.from_env()
+    if args.sync_airtable_now:
+        return _sync_airtable_now(settings)
+    _ensure_required_airtable_files(settings)
     now = datetime.fromisoformat(args.now) if args.now else datetime.now()
     source_serial = DeviceIdentity(
         DeviceIdentitySettings(
@@ -301,7 +312,8 @@ def _run_weather_refresh_now(jobs: list[PeriodicJob]) -> None:
 def _validate_airtable_files(settings: RuntimeSettings) -> int:
     schedule_summary = validate_schedule_file(settings.schedule_file)
     controller_summary = validate_controller_file(settings.controller_file)
-    summaries = [schedule_summary, controller_summary]
+    access_users_summary = validate_access_users_file(settings.access_users_file)
+    summaries = [schedule_summary, controller_summary, access_users_summary]
 
     for summary in summaries:
         print(
@@ -321,6 +333,20 @@ def _validate_airtable_files(settings: RuntimeSettings) -> int:
             )
 
     return 0 if all(summary.ok for summary in summaries) else 1
+
+
+def _sync_airtable_now(settings: RuntimeSettings) -> int:
+    results = AirtableSyncService(settings).sync_all()
+    for result in results:
+        print(
+            "airtable_sync "
+            f"kind={result.file_kind} "
+            f"table={result.table_name} "
+            f"path={result.output_path} "
+            f"record_count={result.record_count} "
+            f"action={result.action}"
+        )
+    return 0
 
 
 def _handle_access_request(
@@ -474,6 +500,38 @@ def _payload_str_or_none(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value
     return None
+
+
+def _ensure_required_airtable_files(settings: RuntimeSettings) -> None:
+    logger = logging.getLogger("mqtt_schedule.cli")
+    sync_service = AirtableSyncService(settings)
+    missing_paths = sync_service.required_files_missing()
+    if not missing_paths:
+        return
+    if not sync_service.is_configured():
+        missing_text = ",".join(str(path) for path in missing_paths)
+        raise RuntimeError(
+            f"Required Airtable files are missing and Airtable sync is not configured: {missing_text}"
+        )
+    logger.info(
+        "airtable_sync_startup_fetch missing_count=%s missing_paths=%s",
+        len(missing_paths),
+        ",".join(str(path) for path in missing_paths),
+    )
+    sync_service.sync_all()
+    still_missing = [path for path in _required_airtable_files(settings) if not path.exists()]
+    if still_missing:
+        raise RuntimeError(
+            f"Airtable sync completed but required files are still missing: {','.join(str(path) for path in still_missing)}"
+        )
+
+
+def _required_airtable_files(settings: RuntimeSettings) -> list[Path]:
+    return [
+        settings.schedule_file,
+        settings.controller_file,
+        settings.access_users_file,
+    ]
 
 
 if __name__ == "__main__":

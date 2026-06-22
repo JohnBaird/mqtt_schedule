@@ -5,7 +5,9 @@ from mqtt_schedule.app import FilteredControllerRepository
 from pathlib import Path
 
 from mqtt_schedule.cli import (
+    _ensure_required_airtable_files,
     _handle_access_request,
+    _sync_airtable_now,
     _validate_airtable_files,
     build_mqtt_request_jobs,
     build_weather_refresh_jobs,
@@ -126,6 +128,7 @@ def test_build_weather_refresh_jobs_uses_runtime_settings(tmp_path: Path) -> Non
 def test_validate_airtable_files_returns_success_for_valid_exports(tmp_path: Path, capsys) -> None:
     schedule_file = tmp_path / "airtable_schedule_data.json"
     controller_file = tmp_path / "airtable_config_data.json"
+    access_users_file = tmp_path / "airtable_access_users.json"
     schedule_file.write_text(
         json.dumps(
             {
@@ -161,10 +164,26 @@ def test_validate_airtable_files_returns_success_for_valid_exports(tmp_path: Pat
         ),
         encoding="utf-8",
     )
+    access_users_file.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "id": "rec-3",
+                        "fields": {
+                            "firstName": "John",
+                            "pinNumber": "12345",
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     settings = RuntimeSettings(
         schedule_file=schedule_file,
         controller_file=controller_file,
-        access_users_file=tmp_path / "airtable_access_users.json",
+        access_users_file=access_users_file,
         clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
@@ -178,17 +197,20 @@ def test_validate_airtable_files_returns_success_for_valid_exports(tmp_path: Pat
     assert result == 0
     assert "airtable_file kind=schedule" in output
     assert "airtable_file kind=controller" in output
+    assert "airtable_file kind=access_users" in output
 
 
 def test_validate_airtable_files_returns_failure_for_invalid_export(tmp_path: Path, capsys) -> None:
     schedule_file = tmp_path / "airtable_schedule_data.json"
     controller_file = tmp_path / "airtable_config_data.json"
+    access_users_file = tmp_path / "airtable_access_users.json"
     schedule_file.write_text(json.dumps({"broken": []}), encoding="utf-8")
     controller_file.write_text(json.dumps({"records": []}), encoding="utf-8")
+    access_users_file.write_text(json.dumps({"broken": []}), encoding="utf-8")
     settings = RuntimeSettings(
         schedule_file=schedule_file,
         controller_file=controller_file,
-        access_users_file=tmp_path / "airtable_access_users.json",
+        access_users_file=access_users_file,
         clients_sysinfo_dir=tmp_path / "clients_sysinfo",
         openweather_current_file=tmp_path / "ow_records_current.json",
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
@@ -201,6 +223,85 @@ def test_validate_airtable_files_returns_failure_for_invalid_export(tmp_path: Pa
 
     assert result == 1
     assert "airtable_issue kind=schedule severity=error" in output
+
+
+def test_sync_airtable_now_prints_results(tmp_path: Path, capsys, monkeypatch) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+    )
+
+    class FakeSyncService:
+        def __init__(self, _settings):
+            self.settings = _settings
+
+        def sync_all(self):
+            from mqtt_schedule.airtable_sync import AirtableSyncFileResult
+
+            return [
+                AirtableSyncFileResult(
+                    file_kind="controller",
+                    table_name="irrigation-config",
+                    output_path=self.settings.controller_file,
+                    record_count=3,
+                    action="updated",
+                )
+            ]
+
+    monkeypatch.setattr("mqtt_schedule.cli.AirtableSyncService", FakeSyncService)
+
+    result = _sync_airtable_now(settings)
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert "airtable_sync kind=controller" in output
+    assert "action=updated" in output
+
+
+def test_ensure_required_airtable_files_syncs_when_missing(tmp_path: Path, monkeypatch) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+    )
+
+    class FakeSyncService:
+        def __init__(self, _settings):
+            self.settings = _settings
+
+        def required_files_missing(self):
+            return [self.settings.schedule_file, self.settings.controller_file, self.settings.access_users_file]
+
+        def is_configured(self):
+            return True
+
+        def sync_all(self):
+            for path in (
+                self.settings.schedule_file,
+                self.settings.controller_file,
+                self.settings.access_users_file,
+            ):
+                path.write_text('{"records": []}', encoding="utf-8")
+            return []
+
+    monkeypatch.setattr("mqtt_schedule.cli.AirtableSyncService", FakeSyncService)
+
+    _ensure_required_airtable_files(settings)
+
+    assert settings.schedule_file.exists()
+    assert settings.controller_file.exists()
+    assert settings.access_users_file.exists()
 
 
 def test_build_mqtt_request_jobs_uses_filtered_enabled_controllers(tmp_path: Path) -> None:

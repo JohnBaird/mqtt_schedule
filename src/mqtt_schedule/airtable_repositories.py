@@ -172,6 +172,40 @@ def validate_controller_file(path: str | Path) -> AirtableFileValidationSummary:
     )
 
 
+def validate_access_users_file(path: str | Path) -> AirtableFileValidationSummary:
+    airtable_file = AirtableJsonFile(path)
+    issues: list[AirtableValidationIssue] = []
+    raw = _load_raw_with_issues(airtable_file, issues)
+    records = _records_from_raw(raw, issues)
+    valid_count = 0
+
+    for item in records:
+        fields = dict(item.get("fields") or {})
+        has_name = bool(_string_value(fields.get("firstName")) or _string_value(fields.get("lastName")))
+        has_credential = any(
+            _string_or_none(fields.get(key))
+            for key in ("pinCode", "pinNumber", "cardNumber", "faceId")
+        )
+        if has_name and has_credential:
+            valid_count += 1
+
+    if records and valid_count == 0:
+        issues.append(
+            AirtableValidationIssue(
+                severity="warning",
+                message="No access user records contained both a name and at least one credential.",
+            )
+        )
+
+    return AirtableFileValidationSummary(
+        file_kind="access_users",
+        path=Path(path),
+        record_count=len(records),
+        valid_count=valid_count,
+        issues=issues,
+    )
+
+
 def _load_raw_with_issues(
     airtable_file: AirtableJsonFile,
     issues: list[AirtableValidationIssue],

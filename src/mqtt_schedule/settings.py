@@ -27,6 +27,12 @@ class RuntimeSettings:
     openweather_lat: float | None = None
     openweather_lon: float | None = None
     openweather_units: str = "imperial"
+    airtable_base_url: str = "https://api.airtable.com/v0"
+    airtable_base_id: str | None = None
+    airtable_api_key: str | None = None
+    airtable_controller_table: str = "irrigation-config"
+    airtable_schedule_table: str = "irrigation-schedule"
+    airtable_access_users_table: str = "access-users"
     tempest_base_url: str = "https://swd.weatherflow.com/swd/rest"
     tempest_token: str | None = None
     weather_refresh_openweather_seconds: int = 3 * 3600
@@ -150,6 +156,12 @@ class RuntimeSettings:
             openweather_lat=_env_float("MQTT_SCHEDULE_OPENWEATHER_LAT"),
             openweather_lon=_env_float("MQTT_SCHEDULE_OPENWEATHER_LON"),
             openweather_units=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_UNITS", "imperial"),
+            airtable_base_url=os.environ.get("MQTT_SCHEDULE_AIRTABLE_BASE_URL", "https://api.airtable.com/v0"),
+            airtable_base_id=os.environ.get("MQTT_SCHEDULE_AIRTABLE_BASE_ID"),
+            airtable_api_key=os.environ.get("MQTT_SCHEDULE_AIRTABLE_API_KEY"),
+            airtable_controller_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_CONTROLLER_TABLE", "irrigation-config"),
+            airtable_schedule_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_SCHEDULE_TABLE", "irrigation-schedule"),
+            airtable_access_users_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE", "access-users"),
             tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", "https://swd.weatherflow.com/swd/rest"),
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN"),
             weather_refresh_openweather_seconds=int(os.environ.get("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", str(3 * 3600))),
@@ -212,6 +224,12 @@ class RuntimeSettings:
             openweather_lat=data.get("openweather_lat"),
             openweather_lon=data.get("openweather_lon"),
             openweather_units=data.get("openweather_units", "imperial"),
+            airtable_base_url=data.get("airtable_base_url", "https://api.airtable.com/v0"),
+            airtable_base_id=data.get("airtable_base_id"),
+            airtable_api_key=data.get("airtable_api_key"),
+            airtable_controller_table=data.get("airtable_controller_table", "irrigation-config"),
+            airtable_schedule_table=data.get("airtable_schedule_table", "irrigation-schedule"),
+            airtable_access_users_table=data.get("airtable_access_users_table", "access-users"),
             tempest_base_url=data.get("tempest_base_url", "https://swd.weatherflow.com/swd/rest"),
             tempest_token=data.get("tempest_token"),
             weather_refresh_openweather_seconds=int(data.get("weather_refresh_openweather_seconds", 3 * 3600)),
@@ -271,6 +289,21 @@ class RuntimeSettings:
             openweather_lat=_env_optional_float("MQTT_SCHEDULE_OPENWEATHER_LAT", self.openweather_lat),
             openweather_lon=_env_optional_float("MQTT_SCHEDULE_OPENWEATHER_LON", self.openweather_lon),
             openweather_units=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_UNITS", self.openweather_units),
+            airtable_base_url=os.environ.get("MQTT_SCHEDULE_AIRTABLE_BASE_URL", self.airtable_base_url),
+            airtable_base_id=os.environ.get("MQTT_SCHEDULE_AIRTABLE_BASE_ID", self.airtable_base_id),
+            airtable_api_key=os.environ.get("MQTT_SCHEDULE_AIRTABLE_API_KEY", self.airtable_api_key),
+            airtable_controller_table=os.environ.get(
+                "MQTT_SCHEDULE_AIRTABLE_CONTROLLER_TABLE",
+                self.airtable_controller_table,
+            ),
+            airtable_schedule_table=os.environ.get(
+                "MQTT_SCHEDULE_AIRTABLE_SCHEDULE_TABLE",
+                self.airtable_schedule_table,
+            ),
+            airtable_access_users_table=os.environ.get(
+                "MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE",
+                self.airtable_access_users_table,
+            ),
             tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", self.tempest_base_url),
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN", self.tempest_token),
             weather_refresh_openweather_seconds=_env_int(
