@@ -9,6 +9,7 @@ from mqtt_schedule.cli import (
     _handle_access_request,
     _sync_airtable_now,
     _validate_airtable_files,
+    build_airtable_sync_jobs,
     build_mqtt_request_jobs,
     build_weather_refresh_jobs,
     resolve_allowed_destinations,
@@ -123,6 +124,46 @@ def test_build_weather_refresh_jobs_uses_runtime_settings(tmp_path: Path) -> Non
     assert [job.job_id for job in jobs] == ["openweather-refresh", "tempest-refresh"]
     assert [job.interval_seconds for job in jobs] == [300, 600]
     assert all(job.run_immediately for job in jobs)
+
+
+def test_build_airtable_sync_jobs_uses_runtime_settings(tmp_path: Path) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        airtable_base_id="app123",
+        airtable_api_key="pat123",
+        airtable_sync_seconds=300,
+        airtable_sync_run_immediately=True,
+    )
+
+    jobs = build_airtable_sync_jobs(settings=settings)
+
+    assert [job.job_id for job in jobs] == ["airtable-sync"]
+    assert [job.interval_seconds for job in jobs] == [300]
+    assert all(job.run_immediately for job in jobs)
+
+
+def test_build_airtable_sync_jobs_returns_empty_when_not_configured(tmp_path: Path) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+    )
+
+    jobs = build_airtable_sync_jobs(settings=settings)
+
+    assert jobs == []
 
 
 def test_validate_airtable_files_returns_success_for_valid_exports(tmp_path: Path, capsys) -> None:

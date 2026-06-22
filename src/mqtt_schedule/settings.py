@@ -37,6 +37,8 @@ class RuntimeSettings:
     airtable_controller_table: str = "irrigation-config"
     airtable_schedule_table: str = "irrigation-schedule"
     airtable_access_users_table: str = "access-users"
+    airtable_sync_seconds: int = 15 * 60
+    airtable_sync_run_immediately: bool = False
     tempest_base_url: str = "https://swd.weatherflow.com/swd/rest"
     tempest_token: str | None = None
     weather_refresh_openweather_seconds: int = 3 * 3600
@@ -188,6 +190,8 @@ class RuntimeSettings:
             airtable_controller_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_CONTROLLER_TABLE", "irrigation-config"),
             airtable_schedule_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_SCHEDULE_TABLE", "irrigation-schedule"),
             airtable_access_users_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE", "access-users"),
+            airtable_sync_seconds=int(os.environ.get("MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS", str(15 * 60))),
+            airtable_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY", False),
             tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", "https://swd.weatherflow.com/swd/rest"),
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN"),
             weather_refresh_openweather_seconds=int(os.environ.get("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", str(3 * 3600))),
@@ -264,6 +268,8 @@ class RuntimeSettings:
             airtable_controller_table=data.get("airtable_controller_table", "irrigation-config"),
             airtable_schedule_table=data.get("airtable_schedule_table", "irrigation-schedule"),
             airtable_access_users_table=data.get("airtable_access_users_table", "access-users"),
+            airtable_sync_seconds=int(data.get("airtable_sync_seconds", 15 * 60)),
+            airtable_sync_run_immediately=bool(data.get("airtable_sync_run_immediately", False)),
             tempest_base_url=data.get("tempest_base_url", "https://swd.weatherflow.com/swd/rest"),
             tempest_token=data.get("tempest_token"),
             weather_refresh_openweather_seconds=int(data.get("weather_refresh_openweather_seconds", 3 * 3600)),
@@ -349,6 +355,14 @@ class RuntimeSettings:
             airtable_access_users_table=os.environ.get(
                 "MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE",
                 self.airtable_access_users_table,
+            ),
+            airtable_sync_seconds=_env_int(
+                "MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS",
+                self.airtable_sync_seconds,
+            ),
+            airtable_sync_run_immediately=_env_bool(
+                "MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY",
+                self.airtable_sync_run_immediately,
             ),
             tempest_base_url=os.environ.get("MQTT_SCHEDULE_TEMPEST_BASE_URL", self.tempest_base_url),
             tempest_token=os.environ.get("MQTT_SCHEDULE_TEMPEST_TOKEN", self.tempest_token),

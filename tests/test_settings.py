@@ -27,6 +27,8 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.airtable_controller_table == "irrigation-config"
     assert settings.airtable_schedule_table == "irrigation-schedule"
     assert settings.airtable_access_users_table == "access-users"
+    assert settings.airtable_sync_seconds == 900
+    assert settings.airtable_sync_run_immediately is False
     assert settings.commissioning_only_destinations == ()
     assert settings.mqtt_host == "localhost"
     assert settings.mqtt_port == 1883
@@ -88,6 +90,7 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
   "tempest_data_dir": "/etc/mqtt_schedule/tempest_weather_data",
   "openweather_lat": 33.1,
   "openweather_lon": -84.1,
+  "airtable_sync_seconds": 900,
   "weather_refresh_openweather_seconds": 10800,
   "weather_refresh_tempest_seconds": 3600
 }
@@ -96,6 +99,8 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
     )
     monkeypatch.setenv("MQTT_SCHEDULE_OPENWEATHER_API_KEY", "env-openweather-key")
     monkeypatch.setenv("MQTT_SCHEDULE_TEMPEST_TOKEN", "env-tempest-token")
+    monkeypatch.setenv("MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS", "300")
+    monkeypatch.setenv("MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY", "true")
     monkeypatch.setenv("MQTT_SCHEDULE_OPENWEATHER_REFRESH_SECONDS", "300")
     monkeypatch.setenv("MQTT_SCHEDULE_TEMPEST_REFRESH_SECONDS", "600")
     monkeypatch.setenv("MQTT_SCHEDULE_WEATHER_REFRESH_RUN_IMMEDIATELY", "true")
@@ -104,6 +109,8 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
 
     assert settings.openweather_api_key == "env-openweather-key"
     assert settings.tempest_token == "env-tempest-token"
+    assert settings.airtable_sync_seconds == 300
+    assert settings.airtable_sync_run_immediately is True
     assert settings.weather_refresh_openweather_seconds == 300
     assert settings.weather_refresh_tempest_seconds == 600
     assert settings.weather_refresh_run_immediately is True

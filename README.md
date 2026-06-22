@@ -199,6 +199,8 @@ Current Airtable sync behavior:
 - `python -m mqtt_schedule --sync-airtable-now` fetches controller, schedule, and access-user exports from Airtable into the local JSON contract files.
 - if `airtable_schedule_data.json`, `airtable_config_data.json`, or `airtable_access_users.json` is missing at startup, the service immediately attempts an Airtable sync before continuing.
 - identical Airtable payloads do not overwrite the existing local files.
+- service mode can also run periodic Airtable refresh using `airtable_sync_seconds`.
+- if `airtable_sync_run_immediately` is enabled, the Airtable refresh job also runs once at service startup.
 
 CSV reporting settings:
 
@@ -330,6 +332,15 @@ That means a controller is marked offline if no fresh `stc_online_status_respons
 That timeout transition writes one `offline_timeout` CSV row to `/var/lib/mqtt_schedule/controller_status_events.csv` unless you override the path.
 If the controller later remains healthy for at least 120 seconds, the service writes one `online_recovered` row and marks it online again.
 
+If you want the running service to refresh Airtable exports automatically, set this in `/etc/mqtt_schedule/runtime.json`:
+
+```json
+"airtable_sync_seconds": 900,
+"airtable_sync_run_immediately": true
+```
+
+That means the service refreshes controller, schedule, and access-user Airtable exports every 900 seconds, and also performs one refresh immediately when the service starts.
+
 ## Linux Update Flow
 
 For normal Linux updates, use `/opt/mqtt_schedule` as the one real checkout. Do not use a long-lived staging copy such as `~/mqtt_schedule_temp` for routine updates.
@@ -443,4 +454,25 @@ Recent history from git:
 - `d2c3a21` Add service commissioning logs
 - `c277ade` Add service-safe commissioning destination filter
 - `b9adea0` Initial professional rewrite foundation
+
+- '0152acf' Add controller online recovery threshold                                                          
+- 'a4519a3' Log controller offline timeout events
+- '48e4343' Preserve access request IDs across response and CSV
+- '81e150c' Log access requests to transactions CSV
+- '20e5913' Track controller online status in state file
+- '239dd50' Add explicit access decision diagnostics
+- '53a14d6' Add Airtable sync with startup fetch safeguard
+- '7c3fd0f' Request config file after controller restart
+- 'dda9aa1' Add legacy CSV reporting for inbound responses
+- 'ebc1081' Handle inbound transaction responses
+- '62b3e22' Update README for current Linux and MQTT behavior
+- '94e6cd3' Handle config file responses
+- 'bbef50a' Handle inbound temperature responses
+- 'b7c146e' Handle inbound controller status responses
+- 'ba30883' Handle inbound input status requests
+- 'f6eaaa1' Handle inbound online status requests
+- '1266cd5' Fail safe on missing access user data
+- '866c548' Add inbound MQTT callback diagnostics
+- '640c7eb' Add inbound MQTT access-request handler
+
 git log --pretty=format:"- \`%h\` %s" -n 20

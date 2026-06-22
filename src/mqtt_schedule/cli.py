@@ -198,6 +198,9 @@ def main() -> int:
         refresh_jobs = build_weather_refresh_jobs(
             settings=settings,
         )
+        airtable_sync_jobs = build_airtable_sync_jobs(
+            settings=settings,
+        )
         mqtt_request_jobs = build_mqtt_request_jobs(
             settings=settings,
             controller_repository=controller_repository,
@@ -213,7 +216,7 @@ def main() -> int:
             runner = ServiceRunner(
                 app,
                 config=ServiceConfig(run_immediately=args.run_immediately),
-                periodic_jobs=refresh_jobs + mqtt_request_jobs + controller_status_jobs,
+                periodic_jobs=refresh_jobs + airtable_sync_jobs + mqtt_request_jobs + controller_status_jobs,
             )
             signals = SignalAwareService(runner)
             signals.install_signal_handlers()
@@ -307,6 +310,40 @@ def build_weather_refresh_jobs(
         )
 
     return jobs
+
+
+def build_airtable_sync_jobs(
+    *,
+    settings: RuntimeSettings,
+) -> list[PeriodicJob]:
+    logger = logging.getLogger("mqtt_schedule.cli")
+    sync_service = AirtableSyncService(settings)
+    if not sync_service.is_configured():
+        logger.info("airtable_sync_disabled reason=missing_configuration")
+        return []
+    if settings.airtable_sync_seconds <= 0:
+        logger.info(
+            "airtable_sync_disabled reason=non_positive_interval interval_seconds=%s",
+            settings.airtable_sync_seconds,
+        )
+        return []
+
+    def sync_airtable() -> None:
+        sync_service.sync_all()
+
+    logger.info(
+        "airtable_sync_configured interval_seconds=%s run_immediately=%s",
+        settings.airtable_sync_seconds,
+        settings.airtable_sync_run_immediately,
+    )
+    return [
+        PeriodicJob(
+            job_id="airtable-sync",
+            interval_seconds=settings.airtable_sync_seconds,
+            fn=sync_airtable,
+            run_immediately=settings.airtable_sync_run_immediately,
+        )
+    ]
 
 
 def _run_weather_refresh_now(jobs: list[PeriodicJob]) -> None:
