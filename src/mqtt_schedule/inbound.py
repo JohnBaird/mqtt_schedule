@@ -29,6 +29,7 @@ class AccessRequestMessageHandler:
             self._subscription_topic_for("stc_input_status_request"),
             self._subscription_topic_for("stc_online_status_response"),
             self._subscription_topic_for("stc_input_status_response"),
+            self._subscription_topic_for("stc_temperature_response"),
         ]
 
     def handle_message(self, message: MQTTInboundMessage) -> None:
@@ -50,6 +51,9 @@ class AccessRequestMessageHandler:
             return
         if parsed_topic.command == "stc_input_status_response":
             self._handle_input_status_response(message, parsed_topic)
+            return
+        if parsed_topic.command == "stc_temperature_response":
+            self._handle_temperature_response(message, parsed_topic)
             return
         self.logger.debug(
             "inbound_message_ignored reason=unsupported_command command=%s topic=%s",
@@ -170,6 +174,43 @@ class AccessRequestMessageHandler:
             parsed_topic.destination_serial,
             inputs_category,
             input_ports,
+        )
+
+    def _handle_temperature_response(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
+        self.logger.info("temperature_response_message_received topic=%s", message.topic)
+        if parsed_topic.destination_serial != self.source_serial:
+            self.logger.debug(
+                "inbound_message_ignored reason=wrong_destination expected=%s actual=%s",
+                self.source_serial,
+                parsed_topic.destination_serial,
+            )
+            return
+
+        try:
+            payload = json.loads(message.payload)
+        except json.JSONDecodeError as exc:
+            self.logger.warning(
+                "temperature_response_ignored reason=invalid_payload_json topic=%s detail=%s",
+                message.topic,
+                exc,
+            )
+            return
+
+        sensor_name = _payload_str_or_none(payload.get("sensorName")) or _payload_str_or_none(
+            payload.get("sensor_name")
+        )
+        sensor_value = payload.get("sensorValue", payload.get("sensor_value"))
+        temperature_units = _payload_str_or_none(payload.get("temperatureUnits")) or _payload_str_or_none(
+            payload.get("temperature_units")
+        )
+
+        self.logger.info(
+            "temperature_response_handled source_serial=%s destination_serial=%s sensor_name=%s sensor_value=%s temperature_units=%s",
+            parsed_topic.source_serial,
+            parsed_topic.destination_serial,
+            sensor_name,
+            sensor_value,
+            temperature_units,
         )
 
     def _handle_access_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
