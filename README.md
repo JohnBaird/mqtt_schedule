@@ -146,6 +146,7 @@ Service runtime:
 Current inbound MQTT behavior:
 
 - `stc_access_request` is answered with `stc_access_response`.
+- access decisions are logged with explicit reasons such as `granted`, `credential_not_found`, `group_mismatch`, or `access_user_data_unavailable`.
 - `stc_online_status_request` is answered with `stc_online_status_response`.
 - `stc_input_status_request` is answered with `stc_input_status_response`.
 - `stc_online_status_response` and `stc_input_status_response` are consumed and logged.

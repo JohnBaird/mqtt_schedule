@@ -13,7 +13,7 @@ from mqtt_schedule.mqtt_adapter import (
 from mqtt_schedule.settings import RuntimeSettings
 
 
-def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Path) -> None:
+def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Path, caplog) -> None:
     access_users_file = tmp_path / "airtable_access_users.json"
     access_users_file.write_text(
         json.dumps(
@@ -66,6 +66,7 @@ def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Pa
         source_serial="281261212083555",
     )
 
+    caplog.set_level("INFO")
     handler.handle_message(
         MQTTInboundMessage(
             topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
@@ -90,9 +91,10 @@ def test_access_request_handler_publishes_legacy_response_for_grant(tmp_path: Pa
     assert payload["granted"] is True
     assert payload["fullName"] == "John Baird"
     assert payload["pinNumber"] == "12345"
+    assert "decision_reason=granted" in caplog.text
 
 
-def test_access_request_handler_publishes_reject_for_unknown_credential(tmp_path: Path) -> None:
+def test_access_request_handler_publishes_reject_for_unknown_credential(tmp_path: Path, caplog) -> None:
     access_users_file = tmp_path / "airtable_access_users.json"
     access_users_file.write_text(json.dumps({"records": []}), encoding="utf-8")
     settings = RuntimeSettings(
@@ -123,6 +125,7 @@ def test_access_request_handler_publishes_reject_for_unknown_credential(tmp_path
         source_serial="281261212083555",
     )
 
+    caplog.set_level("INFO")
     handler.handle_message(
         MQTTInboundMessage(
             topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
@@ -134,9 +137,10 @@ def test_access_request_handler_publishes_reject_for_unknown_credential(tmp_path
     assert payload["granted"] is False
     assert payload["fullName"] == "Unknown"
     assert payload["pinNumber"] == "99999"
+    assert "decision_reason=credential_not_found" in caplog.text
 
 
-def test_access_request_handler_rejects_when_access_users_file_is_missing(tmp_path: Path) -> None:
+def test_access_request_handler_rejects_when_access_users_file_is_missing(tmp_path: Path, caplog) -> None:
     access_users_file = tmp_path / "airtable_access_users.json"
     settings = RuntimeSettings(
         schedule_file=tmp_path / "airtable_schedule_data.json",
@@ -166,6 +170,7 @@ def test_access_request_handler_rejects_when_access_users_file_is_missing(tmp_pa
         source_serial="281261212083555",
     )
 
+    caplog.set_level("INFO")
     handler.handle_message(
         MQTTInboundMessage(
             topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
@@ -177,6 +182,7 @@ def test_access_request_handler_rejects_when_access_users_file_is_missing(tmp_pa
     assert payload["granted"] is False
     assert payload["fullName"] == "Unknown"
     assert payload["pinNumber"] == "12345"
+    assert "decision_reason=access_user_data_unavailable" in caplog.text
 
 
 def test_online_status_request_handler_publishes_legacy_response(tmp_path: Path) -> None:
@@ -285,7 +291,7 @@ def test_input_status_request_handler_publishes_legacy_response(tmp_path: Path) 
     assert payload["input_ports"] == 0
 
 
-def test_access_request_handler_rejects_when_access_users_file_is_invalid_json(tmp_path: Path) -> None:
+def test_access_request_handler_rejects_when_access_users_file_is_invalid_json(tmp_path: Path, caplog) -> None:
     access_users_file = tmp_path / "airtable_access_users.json"
     access_users_file.write_text("{invalid", encoding="utf-8")
     settings = RuntimeSettings(
@@ -316,6 +322,7 @@ def test_access_request_handler_rejects_when_access_users_file_is_invalid_json(t
         source_serial="281261212083555",
     )
 
+    caplog.set_level("INFO")
     handler.handle_message(
         MQTTInboundMessage(
             topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
@@ -327,6 +334,71 @@ def test_access_request_handler_rejects_when_access_users_file_is_invalid_json(t
     assert payload["granted"] is False
     assert payload["fullName"] == "Unknown"
     assert payload["pinNumber"] == "12345"
+    assert "decision_reason=access_user_data_unavailable" in caplog.text
+
+
+def test_access_request_handler_logs_group_mismatch_reason(tmp_path: Path, caplog) -> None:
+    access_users_file = tmp_path / "airtable_access_users.json"
+    access_users_file.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "id": "rec-1",
+                        "fields": {
+                            "firstName": "John",
+                            "lastName": "Baird",
+                            "enabled": "true",
+                            "pinNumber": "12345",
+                            "accessGroups": ["group1"],
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=access_users_file,
+        clients_sysinfo_dir=tmp_path / "clients_sysinfo",
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        access_groups=("group9",),
+    )
+    client = RecordingMQTTClient()
+    publisher = MQTTMaintenancePublisher(
+        encoder=MQTTCommandEncoder(
+            MQTTBrokerSettings(
+                host="localhost",
+                port=1883,
+                source_serial="281261212083555",
+            )
+        ),
+        client=client,
+    )
+    handler = AccessRequestMessageHandler(
+        settings=settings,
+        maintenance_publisher=publisher,
+        source_serial="281261212083555",
+    )
+
+    caplog.set_level("INFO")
+    handler.handle_message(
+        MQTTInboundMessage(
+            topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
+            payload=json.dumps({"pinNumber": "12345"}),
+        )
+    )
+
+    payload = json.loads(client.published[0][1])
+    assert payload["granted"] is False
+    assert payload["fullName"] == "John Baird"
+    assert "decision_reason=group_mismatch" in caplog.text
+    assert "configured_groups=group9" in caplog.text
 
 
 def test_online_status_response_handler_consumes_legacy_payload(tmp_path: Path, caplog) -> None:

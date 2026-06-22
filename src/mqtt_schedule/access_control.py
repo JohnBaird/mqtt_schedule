@@ -101,6 +101,7 @@ class AccessDecisionService:
                 full_name="Unknown",
                 matched_group=None,
                 matched_credential=None,
+                decision_reason="no_credential",
             )
 
         record = self.repository.find_enabled_user_by_credential(number_used)
@@ -110,6 +111,7 @@ class AccessDecisionService:
                 full_name="Unknown",
                 matched_group=None,
                 matched_credential=number_used,
+                decision_reason="credential_not_found",
             )
 
         matched_group = next(
@@ -117,12 +119,14 @@ class AccessDecisionService:
             None,
         )
         granted = bool(matched_group)
+        decision_reason = "granted" if granted else "group_mismatch"
 
         return AccessDecision(
             granted=granted,
             full_name=record.full_name,
             matched_group=matched_group,
             matched_credential=number_used,
+            decision_reason=decision_reason,
         )
 
 

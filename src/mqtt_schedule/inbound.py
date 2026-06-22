@@ -404,13 +404,15 @@ class AccessRequestMessageHandler:
 
         self.maintenance_publisher.publish_access_response_for_request(request, decision)
         self.logger.info(
-            "access_request_handled source_serial=%s destination_serial=%s granted=%s full_name=%s matched_group=%s matched_credential=%s",
+            "access_request_handled source_serial=%s destination_serial=%s granted=%s full_name=%s matched_group=%s matched_credential=%s decision_reason=%s configured_groups=%s",
             request.source_serial,
             request.destination_serial,
             decision.granted,
             decision.full_name,
             decision.matched_group,
             decision.matched_credential,
+            decision.decision_reason,
+            ",".join(self.settings.access_groups),
         )
 
 
@@ -456,4 +458,5 @@ def _fallback_reject_decision(request: AccessRequest):
         full_name="Unknown",
         matched_group=None,
         matched_credential=matched_credential,
+        decision_reason="access_user_data_unavailable",
     )

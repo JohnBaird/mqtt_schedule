@@ -97,3 +97,4 @@ class AccessDecision:
     full_name: str
     matched_group: str | None
     matched_credential: str | None
+    decision_reason: str = "unknown"
