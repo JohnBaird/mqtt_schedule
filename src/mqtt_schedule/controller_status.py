@@ -30,11 +30,21 @@ class ControllerStatusStore:
         controllers = payload.setdefault("controllers", {})
         controller = dict(controllers.get(update.source_serial) or {})
         seen_at = update.seen_at.isoformat()
+        was_online = bool(controller.get("online", False))
 
         controller["last_seen_at"] = seen_at
         controller["last_response"] = update.response
         controller["last_reason"] = update.reason
-        controller["online"] = update.response == "online"
+        if update.response == "online":
+            if was_online or "online" not in controller:
+                controller["online"] = True
+                controller.pop("recovery_started_at", None)
+            else:
+                controller["online"] = False
+                controller.setdefault("recovery_started_at", seen_at)
+        else:
+            controller["online"] = False
+            controller.pop("recovery_started_at", None)
         if update.reason == "restarted":
             controller["last_restart_at"] = seen_at
         if update.config_sync_requested:
@@ -52,7 +62,13 @@ class ControllerStatusStore:
             self.path,
         )
 
-    def refresh_online_flags(self, *, now: datetime, offline_after_seconds: int) -> None:
+    def refresh_online_flags(
+        self,
+        *,
+        now: datetime,
+        offline_after_seconds: int,
+        online_recovery_after_seconds: int,
+    ) -> None:
         payload = self._load()
         controllers = payload.setdefault("controllers", {})
         changed_serials: list[str] = []
@@ -68,13 +84,13 @@ class ControllerStatusStore:
             except ValueError:
                 continue
 
-            should_be_online = (now - last_seen_at).total_seconds() <= offline_after_seconds
-            if controller.get("online") == should_be_online:
-                continue
+            is_fresh = (now - last_seen_at).total_seconds() <= offline_after_seconds
+            currently_online = bool(controller.get("online", False))
 
-            controller["online"] = should_be_online
-            if not should_be_online:
+            if currently_online and not is_fresh:
+                controller["online"] = False
                 controller["last_offline_at"] = now.isoformat()
+                controller.pop("recovery_started_at", None)
                 if self.csv_recorder is not None:
                     self.csv_recorder.record_controller_offline_event(
                         source_serial=source_serial,
@@ -84,6 +100,43 @@ class ControllerStatusStore:
                         last_reason=str(controller.get("last_reason") or ""),
                         offline_after_seconds=offline_after_seconds,
                     )
+                changed_serials.append(source_serial)
+                continue
+
+            if currently_online or not is_fresh or controller.get("last_response") != "online":
+                if not is_fresh:
+                    controller.pop("recovery_started_at", None)
+                continue
+
+            recovery_started_at_raw = controller.get("recovery_started_at")
+            if not isinstance(recovery_started_at_raw, str) or not recovery_started_at_raw.strip():
+                controller["recovery_started_at"] = last_seen_at.isoformat()
+                payload["updated_at"] = now.isoformat()
+                self._write(payload)
+                continue
+            try:
+                recovery_started_at = datetime.fromisoformat(recovery_started_at_raw)
+            except ValueError:
+                controller["recovery_started_at"] = last_seen_at.isoformat()
+                payload["updated_at"] = now.isoformat()
+                self._write(payload)
+                continue
+
+            if (now - recovery_started_at).total_seconds() < online_recovery_after_seconds:
+                continue
+
+            controller["online"] = True
+            controller["last_online_recovered_at"] = now.isoformat()
+            controller.pop("recovery_started_at", None)
+            if self.csv_recorder is not None:
+                self.csv_recorder.record_controller_online_recovered_event(
+                    source_serial=source_serial,
+                    last_seen_at=last_seen_at.isoformat(),
+                    detected_at=now.isoformat(),
+                    last_response=str(controller.get("last_response") or ""),
+                    last_reason=str(controller.get("last_reason") or ""),
+                    online_recovery_after_seconds=online_recovery_after_seconds,
+                )
             changed_serials.append(source_serial)
 
         if not changed_serials:
@@ -92,9 +145,10 @@ class ControllerStatusStore:
         payload["updated_at"] = now.isoformat()
         self._write(payload)
         self.logger.info(
-            "controller_status_refreshed changed_count=%s offline_after_seconds=%s controllers=%s path=%s",
+            "controller_status_refreshed changed_count=%s offline_after_seconds=%s online_recovery_after_seconds=%s controllers=%s path=%s",
             len(changed_serials),
             offline_after_seconds,
+            online_recovery_after_seconds,
             ",".join(sorted(changed_serials)),
             self.path,
         )

@@ -499,12 +499,14 @@ def build_controller_status_jobs(
         controller_status_store.refresh_online_flags(
             now=datetime.now(),
             offline_after_seconds=settings.controller_offline_after_seconds,
+            online_recovery_after_seconds=settings.controller_online_recovery_after_seconds,
         )
 
     logger.info(
-        "controller_status_refresh_configured interval_seconds=%s offline_after_seconds=%s",
+        "controller_status_refresh_configured interval_seconds=%s offline_after_seconds=%s online_recovery_after_seconds=%s",
         60,
         settings.controller_offline_after_seconds,
+        settings.controller_online_recovery_after_seconds,
     )
     return [
         PeriodicJob(

@@ -20,6 +20,7 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.device_serial_file.as_posix() == "/var/lib/mqtt_schedule/device_serial.txt"
     assert settings.controller_status_file.as_posix() == "/var/lib/mqtt_schedule/controller_status.json"
     assert settings.controller_offline_after_seconds == 180
+    assert settings.controller_online_recovery_after_seconds == 120
     assert settings.controller_status_csv_file.as_posix() == "/var/lib/mqtt_schedule/controller_status_events.csv"
     assert settings.airtable_base_url == "https://api.airtable.com/v0"
     assert settings.airtable_base_id == "appUSmE6ODKXkqLh3"
@@ -110,7 +111,9 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
 
 def test_runtime_settings_reads_controller_offline_timeout_from_env(monkeypatch) -> None:
     monkeypatch.setenv("MQTT_SCHEDULE_CONTROLLER_OFFLINE_AFTER_SECONDS", "420")
+    monkeypatch.setenv("MQTT_SCHEDULE_CONTROLLER_ONLINE_RECOVERY_AFTER_SECONDS", "240")
 
     settings = RuntimeSettings.from_env()
 
     assert settings.controller_offline_after_seconds == 420
+    assert settings.controller_online_recovery_after_seconds == 240

@@ -38,7 +38,7 @@ class ControllerStatusCsvRow:
     detectedAt: str
     lastResponse: str
     lastReason: str
-    offlineAfterSeconds: str
+    thresholdSeconds: str
 
 
 class RotatingCsvWriter:
@@ -234,6 +234,28 @@ class LegacyCsvRecorder:
                 detectedAt=detected_at,
                 lastResponse=last_response,
                 lastReason=last_reason,
-                offlineAfterSeconds=str(offline_after_seconds),
+                thresholdSeconds=str(offline_after_seconds),
+            )
+        )
+
+    def record_controller_online_recovered_event(
+        self,
+        *,
+        source_serial: str,
+        last_seen_at: str,
+        detected_at: str,
+        last_response: str,
+        last_reason: str,
+        online_recovery_after_seconds: int,
+    ) -> None:
+        self.controller_status_writer.write_row(
+            ControllerStatusCsvRow(
+                serialSource=source_serial,
+                eventType="online_recovered",
+                lastSeenAt=last_seen_at,
+                detectedAt=detected_at,
+                lastResponse=last_response,
+                lastReason=last_reason,
+                thresholdSeconds=str(online_recovery_after_seconds),
             )
         )

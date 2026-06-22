@@ -18,6 +18,7 @@ class RuntimeSettings:
     device_serial_file: Path
     controller_status_file: Path = Path("/var/lib/mqtt_schedule/controller_status.json")
     controller_offline_after_seconds: int = 3 * 60
+    controller_online_recovery_after_seconds: int = 2 * 60
     controller_status_csv_file: Path = Path("/var/lib/mqtt_schedule/controller_status_events.csv")
     transaction_csv_file: Path = Path("/var/lib/mqtt_schedule/transactions.csv")
     temperature_csv_file: Path = Path("/var/lib/mqtt_schedule/temperature.csv")
@@ -170,6 +171,9 @@ class RuntimeSettings:
             controller_offline_after_seconds=int(
                 os.environ.get("MQTT_SCHEDULE_CONTROLLER_OFFLINE_AFTER_SECONDS", str(3 * 60))
             ),
+            controller_online_recovery_after_seconds=int(
+                os.environ.get("MQTT_SCHEDULE_CONTROLLER_ONLINE_RECOVERY_AFTER_SECONDS", str(2 * 60))
+            ),
             commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS"),
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE"),
             tempest_station_id=int(os.environ.get("MQTT_SCHEDULE_TEMPEST_STATION_ID", "201749")),
@@ -243,6 +247,9 @@ class RuntimeSettings:
             device_serial_file=Path(data.get("device_serial_file", "/var/lib/mqtt_schedule/device_serial.txt")),
             controller_status_file=Path(data.get("controller_status_file", "/var/lib/mqtt_schedule/controller_status.json")),
             controller_offline_after_seconds=int(data.get("controller_offline_after_seconds", 3 * 60)),
+            controller_online_recovery_after_seconds=int(
+                data.get("controller_online_recovery_after_seconds", 2 * 60)
+            ),
             commissioning_only_destinations=tuple(data.get("commissioning_only_destinations", [])),
             source_serial_override=data.get("source_serial_override"),
             tempest_station_id=int(data.get("tempest_station_id", 201749)),
@@ -315,6 +322,10 @@ class RuntimeSettings:
             controller_offline_after_seconds=_env_int(
                 "MQTT_SCHEDULE_CONTROLLER_OFFLINE_AFTER_SECONDS",
                 self.controller_offline_after_seconds,
+            ),
+            controller_online_recovery_after_seconds=_env_int(
+                "MQTT_SCHEDULE_CONTROLLER_ONLINE_RECOVERY_AFTER_SECONDS",
+                self.controller_online_recovery_after_seconds,
             ),
             commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS") or self.commissioning_only_destinations,
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE", self.source_serial_override),

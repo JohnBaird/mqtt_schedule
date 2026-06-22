@@ -127,6 +127,41 @@ Planned placement for connection information:
 This split is intentional so we do not keep secrets in the main checked-in config file.
 The MQTT topic source serial is derived from machine identity and persisted as runtime state, not edited as normal config.
 
+## Runtime Files
+
+Important Linux runtime locations:
+
+- `/etc/mqtt_schedule/runtime.json`
+  Main operational configuration file.
+- `/etc/mqtt_schedule/mqtt_schedule.env`
+  Secrets and environment overrides.
+- `/etc/mqtt_schedule/airtable_config_data.json`
+  Local controller/config export from Airtable.
+- `/etc/mqtt_schedule/airtable_schedule_data.json`
+  Local schedule export from Airtable.
+- `/etc/mqtt_schedule/airtable_access_users.json`
+  Local access-user export from Airtable.
+- `/etc/mqtt_schedule/ow_records_current.json`
+  OpenWeather current conditions cache.
+- `/etc/mqtt_schedule/ow_records_forecast.json`
+  OpenWeather forecast cache.
+- `/etc/mqtt_schedule/tempest_weather_data/`
+  Tempest snapshot directory.
+- `/etc/mqtt_schedule/clients_sysinfo/`
+  Saved controller config/sysinfo snapshots from inbound MQTT responses.
+- `/var/lib/mqtt_schedule/device_serial.txt`
+  Persisted local source serial used in MQTT topics.
+- `/var/lib/mqtt_schedule/controller_status.json`
+  Current-state controller availability file.
+- `/var/lib/mqtt_schedule/transactions.csv`
+  Legacy-style transaction/access trace CSV.
+- `/var/lib/mqtt_schedule/temperature.csv`
+  Legacy-style temperature CSV.
+- `/var/lib/mqtt_schedule/controller_status_events.csv`
+  Timeout-driven controller offline event CSV.
+- `/var/lib/mqtt_schedule/csv_backup/`
+  Rotated CSV backup directory.
+
 Commissioning safety:
 
 - `commissioning_only_destinations` in `runtime.json` limits all runs, including `--service`, to specific controller serials.
@@ -180,9 +215,11 @@ Controller status settings:
 
 - `controller_status_file` defaults to `/var/lib/mqtt_schedule/controller_status.json`
 - `controller_offline_after_seconds` defaults to `180`
+- `controller_online_recovery_after_seconds` defaults to `120`
 - each inbound `stc_online_status_response` updates that file with the controller's last seen timestamp, response, reason, and restart/config-sync markers
 - the service recalculates controller online/offline state once per minute from `last_seen_at`, so the file stays bounded to one current-state entry per controller instead of growing as a history log
 - when a controller transitions to offline because it exceeded `controller_offline_after_seconds`, one `offline_timeout` row is appended to `controller_status_csv_file`
+- when a previously offline controller stays healthy for at least `controller_online_recovery_after_seconds`, one `online_recovered` row is appended to `controller_status_csv_file`
 
 Transaction traceability:
 
@@ -285,11 +322,13 @@ sudo chown -R mqttschedule:mqttschedule /etc/mqtt_schedule/clients_sysinfo
 If you want controller offline detection to match your site, set this in `/etc/mqtt_schedule/runtime.json`:
 
 ```json
-"controller_offline_after_seconds": 180
+"controller_offline_after_seconds": 180,
+"controller_online_recovery_after_seconds": 120
 ```
 
 That means a controller is marked offline if no fresh `stc_online_status_response` has been seen for more than 180 seconds.
-That timeout transition also writes one CSV event row to `/var/lib/mqtt_schedule/controller_status_events.csv` unless you override the path.
+That timeout transition writes one `offline_timeout` CSV row to `/var/lib/mqtt_schedule/controller_status_events.csv` unless you override the path.
+If the controller later remains healthy for at least 120 seconds, the service writes one `online_recovered` row and marks it online again.
 
 ## Linux Update Flow
 

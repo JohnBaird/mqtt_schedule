@@ -12,6 +12,7 @@
   "device_serial_file": "/var/lib/mqtt_schedule/device_serial.txt",
   "controller_status_file": "/var/lib/mqtt_schedule/controller_status.json",
   "controller_offline_after_seconds": 180,
+  "controller_online_recovery_after_seconds": 120,
   "controller_status_csv_file": "/var/lib/mqtt_schedule/controller_status_events.csv",
   "commissioning_only_destinations": [],
   "airtable_base_url": "https://api.airtable.com/v0",
