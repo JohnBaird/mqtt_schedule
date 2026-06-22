@@ -124,3 +124,88 @@ def test_access_request_handler_publishes_reject_for_unknown_credential(tmp_path
     assert payload["granted"] is False
     assert payload["fullName"] == "Unknown"
     assert payload["pinNumber"] == "99999"
+
+
+def test_access_request_handler_rejects_when_access_users_file_is_missing(tmp_path: Path) -> None:
+    access_users_file = tmp_path / "airtable_access_users.json"
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=access_users_file,
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        access_groups=("group1",),
+    )
+    client = RecordingMQTTClient()
+    publisher = MQTTMaintenancePublisher(
+        encoder=MQTTCommandEncoder(
+            MQTTBrokerSettings(
+                host="localhost",
+                port=1883,
+                source_serial="281261212083555",
+            )
+        ),
+        client=client,
+    )
+    handler = AccessRequestMessageHandler(
+        settings=settings,
+        maintenance_publisher=publisher,
+        source_serial="281261212083555",
+    )
+
+    handler.handle_message(
+        MQTTInboundMessage(
+            topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
+            payload=json.dumps({"pinNumber": "12345"}),
+        )
+    )
+
+    payload = json.loads(client.published[0][1])
+    assert payload["granted"] is False
+    assert payload["fullName"] == "Unknown"
+    assert payload["pinNumber"] == "12345"
+
+
+def test_access_request_handler_rejects_when_access_users_file_is_invalid_json(tmp_path: Path) -> None:
+    access_users_file = tmp_path / "airtable_access_users.json"
+    access_users_file.write_text("{invalid", encoding="utf-8")
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=access_users_file,
+        openweather_current_file=tmp_path / "ow_records_current.json",
+        openweather_forecast_file=tmp_path / "ow_records_forecast.json",
+        tempest_data_dir=tmp_path / "tempest_weather_data",
+        device_serial_file=tmp_path / "device_serial.txt",
+        access_groups=("group1",),
+    )
+    client = RecordingMQTTClient()
+    publisher = MQTTMaintenancePublisher(
+        encoder=MQTTCommandEncoder(
+            MQTTBrokerSettings(
+                host="localhost",
+                port=1883,
+                source_serial="281261212083555",
+            )
+        ),
+        client=client,
+    )
+    handler = AccessRequestMessageHandler(
+        settings=settings,
+        maintenance_publisher=publisher,
+        source_serial="281261212083555",
+    )
+
+    handler.handle_message(
+        MQTTInboundMessage(
+            topic="SPV1.0/irrigation/stc_access_request/242606363309393/281261212083555",
+            payload=json.dumps({"pinNumber": "12345"}),
+        )
+    )
+
+    payload = json.loads(client.published[0][1])
+    assert payload["granted"] is False
+    assert payload["fullName"] == "Unknown"
+    assert payload["pinNumber"] == "12345"

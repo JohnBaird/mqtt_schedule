@@ -4,7 +4,7 @@ import json
 import logging
 
 from .access_control import AccessDecisionService, FileAccessUserRepository
-from .domain import AccessRequest
+from .domain import AccessDecision, AccessRequest
 from .mqtt_adapter import MQTTInboundMessage, MQTTMaintenancePublisher, SPTopic
 from .settings import RuntimeSettings
 
@@ -83,10 +83,18 @@ class AccessRequestMessageHandler:
             bool(request.face_id),
         )
 
-        decision = AccessDecisionService(
-            repository=FileAccessUserRepository(self.settings.access_users_file),
-            access_groups=list(self.settings.access_groups),
-        ).decide(request)
+        try:
+            decision = AccessDecisionService(
+                repository=FileAccessUserRepository(self.settings.access_users_file),
+                access_groups=list(self.settings.access_groups),
+            ).decide(request)
+        except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+            self.logger.warning(
+                "access_request_fallback_reject reason=access_user_data_unavailable path=%s detail=%s",
+                self.settings.access_users_file,
+                exc,
+            )
+            decision = _fallback_reject_decision(request)
 
         self.maintenance_publisher.publish_access_response_for_request(request, decision)
         self.logger.info(
@@ -104,3 +112,25 @@ def _payload_str_or_none(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value
     return None
+
+
+def _fallback_reject_decision(request: AccessRequest):
+    matched_credential = next(
+        (
+            value
+            for value in (
+                request.pin_code,
+                request.pin_number,
+                request.card_number,
+                request.face_id,
+            )
+            if value
+        ),
+        None,
+    )
+    return AccessDecision(
+        granted=False,
+        full_name="Unknown",
+        matched_group=None,
+        matched_credential=matched_credential,
+    )
