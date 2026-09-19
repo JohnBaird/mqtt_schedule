@@ -29,7 +29,7 @@
   "airtable_controller_table": "irrigation-config",
   "airtable_schedule_table": "irrigation-schedule",
   "airtable_access_users_table": "access-users",
-  "airtable_sync_seconds": 900,
+  "airtable_sync_seconds": 86400,
   "airtable_sync_run_immediately": false,
   "mongo_db": "homeWeather",
   "mongo_col_stations": "stations",

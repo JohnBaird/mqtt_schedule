@@ -241,6 +241,7 @@ Current Airtable sync behavior:
 - identical Airtable payloads do not overwrite the existing local files.
 - service mode can also run periodic Airtable refresh using `airtable_sync_seconds`.
 - if `airtable_sync_run_immediately` is enabled, the Airtable refresh job also runs once at service startup.
+- The default interval is 86400 seconds (24 hours); the periodic job does not run immediately when all required local exports are present.
 
 Current MongoDB behavior:
 
@@ -402,11 +403,11 @@ If the controller later remains healthy for at least 120 seconds, the service wr
 If you want the running service to refresh Airtable exports automatically, set this in `/etc/mqtt_schedule/runtime.json`:
 
 ```json
-"airtable_sync_seconds": 900,
-"airtable_sync_run_immediately": true
+"airtable_sync_seconds": 86400,
+"airtable_sync_run_immediately": false
 ```
 
-That means the service refreshes controller, schedule, and access-user Airtable exports every 900 seconds, and also performs one refresh immediately when the service starts.
+That means the service refreshes controller, schedule, and access-user Airtable exports every 24 hours while running. It still fetches at startup if any required local export is missing. Environment variables `MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS` and `MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY` override these JSON values if set.
 
 If you want the running service to ingest Tempest weather files into MongoDB automatically, set this in `/etc/mqtt_schedule/runtime.json`:
 
@@ -555,6 +556,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git:
 
+- `133e758` Support named commissioning controller filters
 - `e473769` Add Mongo weather ingestion for OpenWeather and Tempest
 - `274e2ef` Add Mongo foundation and ingestion audit support
 - `504418c` Add Mongo foundation and ingestion audit support

@@ -30,7 +30,7 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.airtable_controller_table == "irrigation-config"
     assert settings.airtable_schedule_table == "irrigation-schedule"
     assert settings.airtable_access_users_table == "access-users"
-    assert settings.airtable_sync_seconds == 900
+    assert settings.airtable_sync_seconds == 86400
     assert settings.airtable_sync_run_immediately is False
     assert settings.mongo_db == "homeWeather"
     assert settings.mongo_col_stations == "stations"
