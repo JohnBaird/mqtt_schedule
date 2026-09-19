@@ -14,7 +14,16 @@
   "controller_offline_after_seconds": 180,
   "controller_online_recovery_after_seconds": 120,
   "controller_status_csv_file": "/var/lib/mqtt_schedule/controller_status_events.csv",
-  "commissioning_only_destinations": [],
+  "commissioning_only_destinations": {
+    "Controller_1": {"serial": "242606363309393", "enabled": true},
+    "Controller_2": {"serial": "150232028360370", "enabled": true},
+    "Controller_3": {"serial": "49269302993486", "enabled": false},
+    "Controller_4": {"serial": "251096704254951", "enabled": true},
+    "Controller_5": {"serial": "233462101352176", "enabled": true},
+    "Controller_6": {"serial": "26698080755440", "enabled": true},
+    "Controller_7": {"serial": "167227924461412", "enabled": true},
+    "Controller_8": {"serial": "115445361687700", "enabled": true}
+  },
   "airtable_base_url": "https://api.airtable.com/v0",
   "airtable_base_id": "appUSmE6ODKXkqLh3",
   "airtable_controller_table": "irrigation-config",

@@ -6,6 +6,49 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _parse_commissioning_destinations(value: object) -> tuple[str, ...]:
+    if isinstance(value, list):
+        serials = value
+    elif isinstance(value, dict):
+        if not value:
+            raise ValueError("commissioning_only_destinations cannot be an empty object; use [] to disable the filter")
+        serials = []
+        for name, controller in value.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("commissioning_only_destinations requires nonempty controller names")
+            if not isinstance(controller, dict) or set(controller) != {"serial", "enabled"}:
+                raise ValueError(f"commissioning_only_destinations[{name}] requires serial and enabled")
+            if not isinstance(controller["enabled"], bool):
+                raise ValueError(f"commissioning_only_destinations[{name}].enabled must be a boolean")
+            serial = controller["serial"]
+            if not isinstance(serial, str) or not serial.isascii() or not serial.isdigit():
+                raise ValueError(f"commissioning_only_destinations[{name}].serial must be a decimal string")
+            if controller["enabled"]:
+                serials.append(serial)
+        if not serials:
+            raise ValueError("commissioning_only_destinations has no enabled controllers")
+    else:
+        raise ValueError("commissioning_only_destinations must be a list or a controller object")
+
+    if any(not isinstance(serial, str) or not serial.isascii() or not serial.isdigit() for serial in serials):
+        raise ValueError("commissioning_only_destinations must contain decimal serial strings")
+    if len(serials) != len(set(serials)):
+        raise ValueError("commissioning_only_destinations contains duplicate serials")
+    return tuple(serials)
+
+
+def _narrow_commissioning_destinations(configured: tuple[str, ...]) -> tuple[str, ...]:
+    override = _env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS")
+    if not override:
+        return configured
+    if not configured:
+        return override
+    selected = tuple(serial for serial in configured if serial in override)
+    if not selected:
+        raise ValueError("MQTT_SCHEDULE_ONLY_DESTINATIONS has no overlap with commissioning_only_destinations")
+    return selected
+
+
 @dataclass(frozen=True)
 class RuntimeSettings:
     schedule_file: Path
@@ -296,7 +339,7 @@ class RuntimeSettings:
             controller_online_recovery_after_seconds=int(
                 data.get("controller_online_recovery_after_seconds", 2 * 60)
             ),
-            commissioning_only_destinations=tuple(data.get("commissioning_only_destinations", [])),
+            commissioning_only_destinations=_parse_commissioning_destinations(data.get("commissioning_only_destinations", [])),
             source_serial_override=data.get("source_serial_override"),
             tempest_station_id=int(data.get("tempest_station_id", 201749)),
             openweather_url=data.get("openweather_url", "https://api.openweathermap.org/data/2.5"),
@@ -394,7 +437,7 @@ class RuntimeSettings:
                 "MQTT_SCHEDULE_CONTROLLER_ONLINE_RECOVERY_AFTER_SECONDS",
                 self.controller_online_recovery_after_seconds,
             ),
-            commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS") or self.commissioning_only_destinations,
+            commissioning_only_destinations=_narrow_commissioning_destinations(self.commissioning_only_destinations),
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE", self.source_serial_override),
             tempest_station_id=_env_int("MQTT_SCHEDULE_TEMPEST_STATION_ID", self.tempest_station_id),
             openweather_url=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_URL", self.openweather_url),

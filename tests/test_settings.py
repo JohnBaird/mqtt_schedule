@@ -1,4 +1,7 @@
+import json
 from pathlib import Path
+
+import pytest
 
 from mqtt_schedule.settings import RuntimeSettings
 
@@ -40,7 +43,15 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.mongo_openweather_ingest_run_immediately is False
     assert settings.mongo_tempest_ingest_seconds == 3600
     assert settings.mongo_tempest_ingest_run_immediately is False
-    assert settings.commissioning_only_destinations == ()
+    assert settings.commissioning_only_destinations == (
+        "242606363309393",
+        "150232028360370",
+        "251096704254951",
+        "233462101352176",
+        "26698080755440",
+        "167227924461412",
+        "115445361687700",
+    )
     assert settings.mqtt_host == "localhost"
     assert settings.mqtt_port == 1883
     assert settings.access_groups == ("group1", "group2")
@@ -78,6 +89,58 @@ def test_runtime_settings_reads_commissioning_destinations_from_json(tmp_path: P
         "242606363309393",
         "115445361687700",
     )
+
+
+def test_runtime_settings_reads_enabled_named_destinations(tmp_path: Path) -> None:
+    config = json.loads(
+        (Path(__file__).resolve().parent.parent / "deploy" / "runtime.example.json").read_text(encoding="utf-8")
+    )
+    config["commissioning_only_destinations"] = {
+        "Controller_1": {"serial": "242606363309393", "enabled": True},
+        "Controller_2": {"serial": "150232028360370", "enabled": False},
+        "Controller_4": {"serial": "251096704254951", "enabled": True},
+    }
+    config_file = tmp_path / "runtime.json"
+    config_file.write_text(json.dumps(config), encoding="utf-8")
+
+    settings = RuntimeSettings.from_json_file(config_file)
+
+    assert settings.commissioning_only_destinations == ("242606363309393", "251096704254951")
+
+
+@pytest.mark.parametrize(
+    "destinations",
+    [
+        {},
+        {"Controller_1": {"serial": "242606363309393", "enabled": False}},
+        {"Controller_1": {"serial": "242606363309393", "enabled": "false"}},
+        {"Controller_1": {"serial": "242606363309393"}},
+        {"Controller_1": {"serial": "242606363309393", "enabled": True},
+         "Controller_2": {"serial": "242606363309393", "enabled": True}},
+    ],
+)
+def test_runtime_settings_rejects_unsafe_named_destinations(tmp_path: Path, destinations) -> None:
+    config = json.loads(
+        (Path(__file__).resolve().parent.parent / "deploy" / "runtime.example.json").read_text(encoding="utf-8")
+    )
+    config["commissioning_only_destinations"] = destinations
+    config_file = tmp_path / "runtime.json"
+    config_file.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="commissioning_only_destinations"):
+        RuntimeSettings.from_json_file(config_file)
+
+
+def test_env_filter_cannot_reenable_disabled_named_destination(tmp_path: Path, monkeypatch) -> None:
+    config = json.loads(
+        (Path(__file__).resolve().parent.parent / "deploy" / "runtime.example.json").read_text(encoding="utf-8")
+    )
+    config_file = tmp_path / "runtime.json"
+    config_file.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setenv("MQTT_SCHEDULE_ONLY_DESTINATIONS", "49269302993486")
+
+    with pytest.raises(ValueError, match="no overlap"):
+        RuntimeSettings.from_json_file(config_file)
 
 
 def test_runtime_settings_reads_commissioning_destinations_from_env(monkeypatch) -> None:

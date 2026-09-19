@@ -681,7 +681,10 @@ def resolve_allowed_destinations(
     configured = set(configured_destinations)
     cli = set(cli_destinations)
     if configured and cli:
-        return configured & cli
+        selected = configured & cli
+        if not selected:
+            raise ValueError("--only-destination has no overlap with commissioning_only_destinations")
+        return selected
     if configured:
         return configured
     return cli

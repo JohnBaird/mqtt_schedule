@@ -1,6 +1,8 @@
 from datetime import datetime
 import json
 
+import pytest
+
 from mqtt_schedule.app import FilteredControllerRepository
 from pathlib import Path
 
@@ -91,6 +93,14 @@ def test_cli_destinations_only_narrow_configured_destinations() -> None:
     )
 
     assert allowed == {"222"}
+
+
+def test_cli_destinations_cannot_remove_all_configured_destinations() -> None:
+    with pytest.raises(ValueError, match="no overlap"):
+        resolve_allowed_destinations(
+            configured_destinations=("222", "333"),
+            cli_destinations=["999"],
+        )
 
 
 def test_configured_destinations_apply_without_cli_override() -> None:

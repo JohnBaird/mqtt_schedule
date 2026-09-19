@@ -203,9 +203,10 @@ Important Linux runtime locations:
 
 Commissioning safety:
 
-- `commissioning_only_destinations` in `runtime.json` limits all runs, including `--service`, to specific controller serials.
-- `MQTT_SCHEDULE_ONLY_DESTINATIONS` in `mqtt_schedule.env` provides the same filter as a comma-separated list.
-- CLI `--only-destination` can further narrow the configured filter, but it cannot widen it.
+- `commissioning_only_destinations` in `runtime.json` limits service-generated commands to enabled controller serials. Controller names are labels only; MQTT topics still use serial numbers.
+- `MQTT_SCHEDULE_ONLY_DESTINATIONS` in `mqtt_schedule.env` is an optional comma-separated filter that can narrow, but not widen, the configured controllers.
+- CLI `--only-destination` can further narrow the configured filter, but it cannot widen it. A filter with no matching enabled destination fails at startup instead of publishing without a filter.
+- The Airtable controller `enabled` field is a separate requirement; both it and the commissioning entry must allow a controller before scheduled commands are sent.
 
 Service runtime:
 
@@ -339,17 +340,29 @@ The installer intentionally:
 /opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --service
 ```
 
-For commissioning one real controller in service mode, set either:
+For commissioning controllers in service mode, edit only the `commissioning_only_destinations` value in `/etc/mqtt_schedule/runtime.json`. Do not replace the whole live file with `deploy/runtime.example.json`, which contains example values for other settings. Named entries make each serial's commissioning state explicit:
+
+```json
+"commissioning_only_destinations": {
+  "Controller_1": {"serial": "242606363309393", "enabled": true},
+  "Controller_2": {"serial": "150232028360370", "enabled": false},
+  "Controller_4": {"serial": "251096704254951", "enabled": true}
+}
+```
+
+Only entries with JSON boolean `true` are selected. `false` keeps a controller visible in the configuration without sending scheduled commands to it. An empty object or a dictionary with no enabled entries is rejected so a typo cannot silently remove the safety filter. The previous list format remains supported:
 
 ```json
 "commissioning_only_destinations": ["242606363309393"]
 ```
 
-or:
+Use `[]` only if you deliberately want no commissioning filter. An optional environment filter can narrow the JSON selection further:
 
 ```bash
 MQTT_SCHEDULE_ONLY_DESTINATIONS=242606363309393
 ```
+
+On Linux, after installing the updated code but before restarting the service, edit the live JSON with `sudo nano /etc/mqtt_schedule/runtime.json`. Check it with `sudo python3 -m json.tool /etc/mqtt_schedule/runtime.json >/dev/null`, then restart with `sudo systemctl restart mqtt_schedule` and inspect `sudo journalctl -u mqtt_schedule -n 80 --no-pager`. Changing JSON alone needs a service restart, not `pip install .`; updating Python code needs an install into `/opt/mqtt_schedule/.venv` before restart.
 
 For live weather commissioning:
 
@@ -501,12 +514,50 @@ If that final `find` prints nothing, reinstall once more:
 
 After the cleanup succeeds, the install should complete without the invalid-distribution warnings.
 
+## Current Handoff
+
+State at the end of the June 22, 2026 session:
+
+- Linux service is running from `/opt/mqtt_schedule` under `systemd`.
+- Airtable sync is working.
+- OpenWeather and Tempest refresh jobs are working.
+- Legacy MQTT scheduling, inbound handling, and CSV reporting are working.
+- Mongo ingestion is now working for both OpenWeather and Tempest.
+
+Confirmed live Mongo status:
+
+- `/etc/mqtt_schedule/runtime.json` contains:
+  - `mongo_db`
+  - `mongo_openweather_ingest_seconds`
+  - `mongo_openweather_ingest_run_immediately`
+  - `mongo_tempest_ingest_seconds`
+  - `mongo_tempest_ingest_run_immediately`
+- `/etc/mqtt_schedule/mqtt_schedule.env` contains:
+  - `MQTT_SCHEDULE_MONGO_URI=mongodb://127.0.0.1:27017`
+  - `MQTT_SCHEDULE_MONGO_AUTHENTICATE=false`
+- journal confirmed:
+  - `openweather_mongo_ingest_complete`
+  - `tempest_mongo_ingest_complete`
+- Mongo document counts confirmed on Linux:
+  - `open_weather`: `2331`
+  - `tempest_flow`: `3337`
+  - `ingestion_runs`: `5686`
+
+Recommended next implementation step:
+
+- build the Mongo-backed weather query and irrigation decision path
+- keep the current file-backed weather path as fallback during commissioning
+- add a runtime switch so file-backed vs Mongo-backed policy can be selected safely
+
 ## Update History
 
 Keep this section at the end of the README and update it whenever behavior changes in a meaningful way. The format should stay lightweight: short commit hash plus one-line summary.
 
 Recent history from git:
 
+- `e473769` Add Mongo weather ingestion for OpenWeather and Tempest
+- `274e2ef` Add Mongo foundation and ingestion audit support
+- `504418c` Add Mongo foundation and ingestion audit support
 - `7c3fd0f` Request config file after controller restart
 - `dda9aa1` Add legacy CSV reporting for inbound responses
 - `ebc1081` Handle inbound transaction responses
