@@ -574,52 +574,31 @@ Recommended next implementation step:
 
 Keep this section at the end of the README and update it whenever behavior changes in a meaningful way. The format should stay lightweight: short commit hash plus one-line summary.
 
-Recent history from git:
+Recent history from git (through the commit before this README edit; use the `git log` command below for the current HEAD):
 
+- `63dd5c3` Prepare CSV backup directory during Linux install
 - `a718b0e` Default Airtable sync to daily without immediate refresh
 - `133e758` Support named commissioning controller filters
 - `e473769` Add Mongo weather ingestion for OpenWeather and Tempest
 - `274e2ef` Add Mongo foundation and ingestion audit support
 - `504418c` Add Mongo foundation and ingestion audit support
+- `55fa81b` Add periodic Airtable sync jobs
+- `0152acf` Add controller online recovery threshold
+- `a4519a3` Log controller offline timeout events
+- `48e4343` Preserve access request IDs across response and CSV
+- `81e150c` Log access requests to transactions CSV
+- `20e5913` Track controller online status in state file
+- `239dd50` Add explicit access decision diagnostics
+- `53a14d6` Add Airtable sync with startup fetch safeguard
 - `7c3fd0f` Request config file after controller restart
 - `dda9aa1` Add legacy CSV reporting for inbound responses
 - `ebc1081` Handle inbound transaction responses
 - `62b3e22` Update README for current Linux and MQTT behavior
 - `94e6cd3` Handle config file responses
 - `bbef50a` Handle inbound temperature responses
-- `b7c146e` Handle inbound controller status responses
-- `ba30883` Handle inbound input status requests
-- `f6eaaa1` Handle inbound online status requests
-- `1266cd5` Fail safe on missing access user data
-- `866c548` Add inbound MQTT callback diagnostics
-- `640c7eb` Add inbound MQTT access-request handler
-- `8db6461` Log service startup through logger
-- `1d544a6` Improve service shutdown behavior
-- `44ff089` Harden Linux install permissions
-- `4c4bc04` Enable live weather refresh commissioning
-- `d2c3a21` Add service commissioning logs
-- `c277ade` Add service-safe commissioning destination filter
-- `b9adea0` Initial professional rewrite foundation
 
-- '55fa81b' Add periodic Airtable sync jobs
-- '0152acf' Add controller online recovery threshold                                                          
-- 'a4519a3' Log controller offline timeout events
-- '48e4343' Preserve access request IDs across response and CSV
-- '81e150c' Log access requests to transactions CSV
-- '20e5913' Track controller online status in state file
-- '239dd50' Add explicit access decision diagnostics
-- '53a14d6' Add Airtable sync with startup fetch safeguard
-- '7c3fd0f' Request config file after controller restart
-- 'dda9aa1' Add legacy CSV reporting for inbound responses
-- 'ebc1081' Handle inbound transaction responses
-- '62b3e22' Update README for current Linux and MQTT behavior
-- '94e6cd3' Handle config file responses
-- 'bbef50a' Handle inbound temperature responses
-- 'b7c146e' Handle inbound controller status responses
-- 'ba30883' Handle inbound input status requests
-- 'f6eaaa1' Handle inbound online status requests
-- '1266cd5' Fail safe on missing access user data
-- '866c548' Add inbound MQTT callback diagnostics
-- '640c7eb' Add inbound MQTT access-request handler
+To see the latest 20 commits, including this README edit after it is committed:
 
-git log --pretty=format:"- \`%h\` %s" -n 20
+```bash
+git log --pretty=format:'- %h %s' -n 20
+```
