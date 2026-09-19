@@ -43,6 +43,7 @@ fi
 
 mkdir -p "$ETC_DIR"
 mkdir -p "$STATE_DIR"
+mkdir -p "$STATE_DIR/csv_backup"
 
 if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
   groupadd --system "$SERVICE_GROUP"

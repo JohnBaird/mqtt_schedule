@@ -201,6 +201,8 @@ Important Linux runtime locations:
 - `/var/lib/mqtt_schedule/csv_backup/`
   Rotated CSV backup directory.
 
+CSV rotation requires the `mqttschedule` service user to write to both `/var/lib/mqtt_schedule/` and `/var/lib/mqtt_schedule/csv_backup/`. A writable CSV file alone is not enough: rotation renames it between those directories. The installer creates the backup directory and assigns the whole state directory to `mqttschedule`.
+
 Commissioning safety:
 
 - `commissioning_only_destinations` in `runtime.json` limits service-generated commands to enabled controller serials. Controller names are labels only; MQTT topics still use serial numbers.
@@ -298,7 +300,7 @@ The MQTT publish format is a hardware compatibility contract.
 
 ## First Tests
 
-For the first Linux-style tests, the intended flow is:
+For a first installation from an uploaded staging directory, the intended flow is below. Do not rerun `deploy/install_linux.sh` against the Git checkout at `/opt/mqtt_schedule`: that installer replaces the application directory, including `.git` and `.venv`. For updates to the existing checkout, use `git pull` and install into its existing virtual environment instead.
 
 1. Upload the repo to a normal user-writable staging path such as `/home/john/mqtt_schedule_temp`.
 2. Run the install script as `root`:
@@ -312,7 +314,25 @@ The installer intentionally:
 - excludes staging-only directories such as `.venv` and `.pytest_cache`
 - creates a fresh `/opt/mqtt_schedule/.venv`
 - prepares writable weather output paths for the `mqttschedule` service user
+- creates `/var/lib/mqtt_schedule/csv_backup/` and makes the state tree writable by `mqttschedule`, so CSV rotation can rename files into the backup directory
 - keeps `runtime.json` root-owned while allowing the service to write weather refresh temp files under `/etc/mqtt_schedule`
+
+Before starting the service, verify the CSV paths are writable by its service user:
+
+```bash
+sudo -u mqttschedule test -w /var/lib/mqtt_schedule
+sudo -u mqttschedule test -w /var/lib/mqtt_schedule/csv_backup
+sudo ls -ld /var/lib/mqtt_schedule /var/lib/mqtt_schedule/csv_backup
+```
+
+If either write test fails, repair ownership and permissions before starting the service:
+
+```bash
+sudo chown mqttschedule:mqttschedule /var/lib/mqtt_schedule /var/lib/mqtt_schedule/csv_backup
+sudo chmod 755 /var/lib/mqtt_schedule /var/lib/mqtt_schedule/csv_backup
+```
+
+If an existing `temperature.csv`, `transactions.csv`, or `controller_status_events.csv` was copied in as `root`, also change its ownership to `mqttschedule:mqttschedule`. The same ownership repair can be done while the service is running; CSV writes and rotation retry on the next response, without a restart.
 
 3. Edit `/etc/mqtt_schedule/runtime.json`.
 4. Edit `/etc/mqtt_schedule/mqtt_schedule.env`.
@@ -556,6 +576,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git:
 
+- `a718b0e` Default Airtable sync to daily without immediate refresh
 - `133e758` Support named commissioning controller filters
 - `e473769` Add Mongo weather ingestion for OpenWeather and Tempest
 - `274e2ef` Add Mongo foundation and ingestion audit support
