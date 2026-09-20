@@ -565,8 +565,12 @@ Recommended next implementation step:
 
 Keep this section at the end of the README and update it whenever behavior changes in a meaningful way. The format should stay lightweight: short commit hash plus one-line summary.
 
-Recent history from git (through the commit before this README edit; use the `git log` command below for the current HEAD):
+Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
 
+- `c6979d7` Split Airtable startup sync by export
+- `2adf260` Keep private Airtable backups for offline startup
+- `3c87721` Use Airtable controller enablement for status reporting
+- `b5986fe` Correct README recent Git history
 - `63dd5c3` Prepare CSV backup directory during Linux install
 - `a718b0e` Default Airtable sync to daily without immediate refresh
 - `133e758` Support named commissioning controller filters
@@ -583,12 +587,8 @@ Recent history from git (through the commit before this README edit; use the `gi
 - `53a14d6` Add Airtable sync with startup fetch safeguard
 - `7c3fd0f` Request config file after controller restart
 - `dda9aa1` Add legacy CSV reporting for inbound responses
-- `ebc1081` Handle inbound transaction responses
-- `62b3e22` Update README for current Linux and MQTT behavior
-- `94e6cd3` Handle config file responses
-- `bbef50a` Handle inbound temperature responses
 
-To see the latest 20 commits, including this README edit after it is committed:
+To see the latest 20 commits at any time:
 
 ```bash
 git log --pretty=format:'- %h %s' -n 20
