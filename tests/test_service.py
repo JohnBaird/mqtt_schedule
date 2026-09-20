@@ -210,3 +210,38 @@ def test_service_runner_logs_shutdown(caplog) -> None:
     assert result == 0
     messages = [record.getMessage() for record in caplog.records]
     assert any("service_shutdown signal_received=true" in message for message in messages)
+
+
+def test_immediate_periodic_job_precedes_first_schedule_tick() -> None:
+    events: list[str] = []
+    class RecordingApplication(FakeApplication):
+        def run_schedule_tick(self, now: datetime):
+            events.append("schedule")
+
+    runner: ServiceRunner | None = None
+    moments = iter([datetime(2026, 6, 20, 11, 45, 0)])
+
+    def clock() -> datetime:
+        nonlocal runner
+        try:
+            return next(moments)
+        except StopIteration:
+            assert runner is not None
+            runner.stop()
+            return datetime(2026, 6, 20, 11, 45, 1)
+
+    runner = ServiceRunner(
+        RecordingApplication(),
+        clock=clock,
+        sleeper=lambda _: None,
+        config=ServiceConfig(run_immediately=True),
+        periodic_jobs=[PeriodicJob(
+            job_id="airtable-sync-controller",
+            interval_seconds=86400,
+            fn=lambda: events.append("controller-sync"),
+            run_immediately=True,
+        )],
+    )
+
+    runner.run_forever()
+    assert events == ["controller-sync", "schedule"]

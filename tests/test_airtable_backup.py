@@ -61,7 +61,7 @@ def test_failed_startup_sync_restores_missing_file_from_backup(tmp_path: Path, m
         def is_configured(self):
             return True
 
-        def sync_all(self):
+        def sync_targets(self, file_kinds):
             raise ConnectionError("Airtable unavailable")
 
     monkeypatch.setattr("mqtt_schedule.cli.AirtableSyncService", FailingSyncService)

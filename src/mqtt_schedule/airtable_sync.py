@@ -46,11 +46,20 @@ class AirtableSyncService:
         )
 
     def sync_all(self) -> list[AirtableSyncFileResult]:
+        return self.sync_targets({target.file_kind for target in self.targets()})
+
+    def sync_targets(self, file_kinds: set[str]) -> list[AirtableSyncFileResult]:
         if not self.is_configured():
             raise RuntimeError("Airtable sync is not configured.")
+        targets = self.targets()
+        unknown = file_kinds - {target.file_kind for target in targets}
+        if unknown:
+            raise ValueError(f"Unknown Airtable file kinds: {', '.join(sorted(unknown))}")
 
         results: list[AirtableSyncFileResult] = []
-        for target in self.targets():
+        for target in targets:
+            if target.file_kind not in file_kinds:
+                continue
             payload = self._fetch_table_payload(target.table_name)
             record_count = len(payload.get("records", []))
             action = _write_json_if_changed(target.output_path, payload)

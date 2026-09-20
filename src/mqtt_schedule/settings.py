@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +40,9 @@ class RuntimeSettings:
     airtable_schedule_table: str = "irrigation-schedule"
     airtable_access_users_table: str = "access-users"
     airtable_sync_seconds: int = 24 * 60 * 60
-    airtable_sync_run_immediately: bool = False
+    airtable_controller_sync_run_immediately: bool = False
+    airtable_schedule_sync_run_immediately: bool = False
+    airtable_access_users_sync_run_immediately: bool = False
     mongo_uri: str | None = None
     mongo_db: str | None = None
     mongo_authenticate: bool = False
@@ -208,7 +211,9 @@ class RuntimeSettings:
             airtable_schedule_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_SCHEDULE_TABLE", "irrigation-schedule"),
             airtable_access_users_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE", "access-users"),
             airtable_sync_seconds=int(os.environ.get("MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS", str(24 * 60 * 60))),
-            airtable_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY", False),
+            airtable_controller_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_CONTROLLER_SYNC_RUN_IMMEDIATELY", False),
+            airtable_schedule_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_SCHEDULE_SYNC_RUN_IMMEDIATELY", False),
+            airtable_access_users_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_SYNC_RUN_IMMEDIATELY", False),
             mongo_uri=os.environ.get("MQTT_SCHEDULE_MONGO_URI"),
             mongo_db=os.environ.get("MQTT_SCHEDULE_MONGO_DB"),
             mongo_authenticate=_env_bool("MQTT_SCHEDULE_MONGO_AUTHENTICATE", False),
@@ -282,6 +287,10 @@ class RuntimeSettings:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         if "commissioning_only_destinations" in data:
             raise ValueError("Remove commissioning_only_destinations from runtime.json; Airtable controller enabled fields are authoritative")
+        if "airtable_sync_run_immediately" in data:
+            logging.getLogger("mqtt_schedule.settings").warning(
+                "airtable_sync_run_immediately is ignored; use the three per-export startup sync settings"
+            )
         settings = cls(
             schedule_file=Path(data["schedule_file"]),
             controller_file=Path(data["controller_file"]),
@@ -316,7 +325,9 @@ class RuntimeSettings:
             airtable_schedule_table=data.get("airtable_schedule_table", "irrigation-schedule"),
             airtable_access_users_table=data.get("airtable_access_users_table", "access-users"),
             airtable_sync_seconds=int(data.get("airtable_sync_seconds", 24 * 60 * 60)),
-            airtable_sync_run_immediately=bool(data.get("airtable_sync_run_immediately", False)),
+            airtable_controller_sync_run_immediately=_json_bool(data, "airtable_controller_sync_run_immediately", False),
+            airtable_schedule_sync_run_immediately=_json_bool(data, "airtable_schedule_sync_run_immediately", False),
+            airtable_access_users_sync_run_immediately=_json_bool(data, "airtable_access_users_sync_run_immediately", False),
             mongo_uri=data.get("mongo_uri"),
             mongo_db=data.get("mongo_db"),
             mongo_authenticate=bool(data.get("mongo_authenticate", False)),
@@ -427,9 +438,17 @@ class RuntimeSettings:
                 "MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS",
                 self.airtable_sync_seconds,
             ),
-            airtable_sync_run_immediately=_env_bool(
-                "MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY",
-                self.airtable_sync_run_immediately,
+            airtable_controller_sync_run_immediately=_env_bool(
+                "MQTT_SCHEDULE_AIRTABLE_CONTROLLER_SYNC_RUN_IMMEDIATELY",
+                self.airtable_controller_sync_run_immediately,
+            ),
+            airtable_schedule_sync_run_immediately=_env_bool(
+                "MQTT_SCHEDULE_AIRTABLE_SCHEDULE_SYNC_RUN_IMMEDIATELY",
+                self.airtable_schedule_sync_run_immediately,
+            ),
+            airtable_access_users_sync_run_immediately=_env_bool(
+                "MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_SYNC_RUN_IMMEDIATELY",
+                self.airtable_access_users_sync_run_immediately,
             ),
             mongo_uri=os.environ.get("MQTT_SCHEDULE_MONGO_URI", self.mongo_uri),
             mongo_db=os.environ.get("MQTT_SCHEDULE_MONGO_DB", self.mongo_db),
@@ -565,6 +584,13 @@ class RuntimeSettings:
                 self.require_latest_within_minutes,
             ),
         )
+
+
+def _json_bool(data: dict[str, object], name: str, default: bool) -> bool:
+    value = data.get(name, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be a JSON boolean")
+    return value
 
 
 def _env_bool(name: str, default: bool) -> bool:

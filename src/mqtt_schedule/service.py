@@ -57,10 +57,11 @@ class ServiceRunner:
 
     def run_forever(self) -> int:
         try:
+            startup_now = self.clock()
+            self._run_periodic_jobs(startup_now)
             if self.config.run_immediately:
-                now = self.clock()
-                self.logger.info("service_tick trigger=run_immediately at=%s", now.isoformat())
-                self._run_tick(now)
+                self.logger.info("service_tick trigger=run_immediately at=%s", startup_now.isoformat())
+                self._run_tick(startup_now)
 
             while not self._stop_event.is_set():
                 now = self.clock()

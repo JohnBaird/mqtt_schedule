@@ -100,3 +100,18 @@ def test_airtable_sync_handles_pagination(tmp_path: Path) -> None:
     assert [item["id"] for item in payload["records"]] == ["rec-1", "rec-2"]
     assert ("irrigation-config", None) in session.calls
     assert ("irrigation-config", "next-page") in session.calls
+
+
+def test_airtable_sync_targets_only_requested_export(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    session = FakeSession({
+        "irrigation-config": [{"records": [{"id": "rec-1", "fields": {"Name": "A", "nameLink": "111"}}]}],
+    })
+
+    results = AirtableSyncService(settings, session=session).sync_targets({"controller"})
+
+    assert [result.file_kind for result in results] == ["controller"]
+    assert session.calls == [("irrigation-config", None)]
+    assert settings.controller_file.exists()
+    assert not settings.schedule_file.exists()
+    assert not settings.access_users_file.exists()

@@ -31,7 +31,9 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.airtable_schedule_table == "irrigation-schedule"
     assert settings.airtable_access_users_table == "access-users"
     assert settings.airtable_sync_seconds == 86400
-    assert settings.airtable_sync_run_immediately is False
+    assert settings.airtable_controller_sync_run_immediately is False
+    assert settings.airtable_schedule_sync_run_immediately is False
+    assert settings.airtable_access_users_sync_run_immediately is False
     assert settings.mongo_db == "homeWeather"
     assert settings.mongo_col_stations == "stations"
     assert settings.mongo_col_open_weather == "open_weather"
@@ -69,6 +71,30 @@ def test_runtime_settings_rejects_legacy_controller_list(tmp_path: Path) -> None
         RuntimeSettings.from_json_file(config_file)
 
 
+
+def test_airtable_startup_flags_require_json_booleans(tmp_path: Path) -> None:
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy" / "runtime.example.json").read_text(encoding="utf-8"))
+    config["airtable_controller_sync_run_immediately"] = "false"
+    config_file = tmp_path / "runtime.json"
+    config_file.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="airtable_controller_sync_run_immediately must be a JSON boolean"):
+        RuntimeSettings.from_json_file(config_file)
+
+
+def test_legacy_airtable_startup_flag_is_ignored(tmp_path: Path, caplog) -> None:
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy" / "runtime.example.json").read_text(encoding="utf-8"))
+    config["airtable_sync_run_immediately"] = True
+    config_file = tmp_path / "runtime.json"
+    config_file.write_text(json.dumps(config), encoding="utf-8")
+
+    settings = RuntimeSettings.from_json_file(config_file)
+
+    assert settings.airtable_controller_sync_run_immediately is False
+    assert settings.airtable_schedule_sync_run_immediately is False
+    assert settings.airtable_access_users_sync_run_immediately is False
+    assert "airtable_sync_run_immediately is ignored" in caplog.text
+
 def test_runtime_settings_reads_commissioning_destinations_from_env(monkeypatch) -> None:
     monkeypatch.setenv("MQTT_SCHEDULE_ONLY_DESTINATIONS", "242606363309393, 115445361687700")
     settings = RuntimeSettings.from_env()
@@ -101,7 +127,8 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
     monkeypatch.setenv("MQTT_SCHEDULE_OPENWEATHER_API_KEY", "env-openweather-key")
     monkeypatch.setenv("MQTT_SCHEDULE_TEMPEST_TOKEN", "env-tempest-token")
     monkeypatch.setenv("MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS", "300")
-    monkeypatch.setenv("MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY", "true")
+    monkeypatch.setenv("MQTT_SCHEDULE_AIRTABLE_CONTROLLER_SYNC_RUN_IMMEDIATELY", "true")
+    monkeypatch.setenv("MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_SYNC_RUN_IMMEDIATELY", "true")
     monkeypatch.setenv("MQTT_SCHEDULE_MONGO_URI", "mongodb://127.0.0.1:27017")
     monkeypatch.setenv("MQTT_SCHEDULE_MONGO_AUTHENTICATE", "true")
     monkeypatch.setenv("MQTT_SCHEDULE_MONGO_USERNAME", "dbuser")
@@ -119,7 +146,9 @@ def test_runtime_settings_applies_env_overrides_on_top_of_json(tmp_path: Path, m
     assert settings.openweather_api_key == "env-openweather-key"
     assert settings.tempest_token == "env-tempest-token"
     assert settings.airtable_sync_seconds == 300
-    assert settings.airtable_sync_run_immediately is True
+    assert settings.airtable_controller_sync_run_immediately is True
+    assert settings.airtable_schedule_sync_run_immediately is False
+    assert settings.airtable_access_users_sync_run_immediately is True
     assert settings.mongo_uri == "mongodb://127.0.0.1:27017"
     assert settings.mongo_db == "homeWeather"
     assert settings.mongo_authenticate is True

@@ -34,7 +34,9 @@ The rewrite now includes a separate Airtable sync path:
 ```
 
 - startup safety:
-  if any required export is missing, startup attempts sync when configured and then restores still-missing files from validated local backups
+  if any required export is missing, startup fetches only the missing export when configured and then restores still-missing files from validated local backups
+- optional startup refresh:
+  three independent `airtable_*_sync_run_immediately` flags choose whether controller, schedule, or access-user exports are fetched when the service starts; all default to `false`
 
 - no-op overwrite protection:
   if the fetched Airtable payload is identical to the current local JSON file, the file is left untouched instead of being rewritten

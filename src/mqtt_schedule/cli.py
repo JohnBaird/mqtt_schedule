@@ -341,23 +341,31 @@ def build_airtable_sync_jobs(
         )
         return []
 
-    def sync_airtable() -> None:
-        sync_service.sync_all()
-        save_airtable_backups(settings)
+    def sync_file(file_kind: str):
+        def run() -> None:
+            sync_service.sync_targets({file_kind})
+            save_airtable_backups(settings)
+        return run
 
-    logger.info(
-        "airtable_sync_configured interval_seconds=%s run_immediately=%s",
-        settings.airtable_sync_seconds,
-        settings.airtable_sync_run_immediately,
-    )
-    return [
-        PeriodicJob(
-            job_id="airtable-sync",
-            interval_seconds=settings.airtable_sync_seconds,
-            fn=sync_airtable,
-            run_immediately=settings.airtable_sync_run_immediately,
+    jobs: list[PeriodicJob] = []
+    for file_kind, run_immediately in (
+        ("controller", settings.airtable_controller_sync_run_immediately),
+        ("schedule", settings.airtable_schedule_sync_run_immediately),
+        ("access_users", settings.airtable_access_users_sync_run_immediately),
+    ):
+        logger.info(
+            "airtable_sync_configured file_kind=%s interval_seconds=%s run_immediately=%s",
+            file_kind,
+            settings.airtable_sync_seconds,
+            run_immediately,
         )
-    ]
+        jobs.append(PeriodicJob(
+            job_id=f"airtable-sync-{file_kind.replace('_', '-')}",
+            interval_seconds=settings.airtable_sync_seconds,
+            fn=sync_file(file_kind),
+            run_immediately=run_immediately,
+        ))
+    return jobs
 
 
 def build_tempest_mongo_ingest_jobs(
@@ -706,19 +714,22 @@ def _payload_str_or_none(value: object) -> str | None:
 def _ensure_required_airtable_files(settings: RuntimeSettings) -> None:
     logger = logging.getLogger("mqtt_schedule.cli")
     sync_service = AirtableSyncService(settings)
-    missing_paths = sync_service.required_files_missing()
+    missing_paths = set(sync_service.required_files_missing())
     sync_error: Exception | None = None
     if missing_paths and sync_service.is_configured():
-        logger.info(
-            "airtable_sync_startup_fetch missing_count=%s missing_paths=%s",
-            len(missing_paths),
-            ",".join(str(path) for path in missing_paths),
-        )
-        try:
-            sync_service.sync_all()
-        except Exception as exc:
-            sync_error = exc
-            logger.warning("airtable_sync_startup_failed detail=%s", exc)
+        for file_kind, path in (
+            ("controller", settings.controller_file),
+            ("schedule", settings.schedule_file),
+            ("access_users", settings.access_users_file),
+        ):
+            if path not in missing_paths:
+                continue
+            logger.info("airtable_sync_startup_fetch file_kind=%s path=%s", file_kind, path)
+            try:
+                sync_service.sync_targets({file_kind})
+            except Exception as exc:
+                sync_error = exc
+                logger.warning("airtable_sync_startup_failed file_kind=%s detail=%s", file_kind, exc)
 
     restore_missing_airtable_files(settings)
     still_missing = [path for path in _required_airtable_files(settings) if not path.exists()]

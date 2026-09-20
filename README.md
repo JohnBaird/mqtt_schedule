@@ -245,7 +245,7 @@ Current Airtable sync behavior:
 - Successful manual and periodic syncs refresh the private snapshots. Identical Airtable payloads do not overwrite the existing local files.
 - `deploy/examples/*.example.json` contains synthetic, disabled reference records matching the server export shapes. These examples are never used as live fallback data.
 - service mode can also run periodic Airtable refresh using `airtable_sync_seconds`.
-- if `airtable_sync_run_immediately` is enabled, the Airtable refresh job also runs once at service startup.
+- Separate `airtable_controller_sync_run_immediately`, `airtable_schedule_sync_run_immediately`, and `airtable_access_users_sync_run_immediately` flags control which exports are fetched when the service starts. All default to `false`.
 - The default interval is 86400 seconds (24 hours); the periodic job does not run immediately when all required local exports are present.
 
 Current MongoDB behavior:
@@ -413,10 +413,12 @@ If you want the running service to refresh Airtable exports automatically, set t
 
 ```json
 "airtable_sync_seconds": 86400,
-"airtable_sync_run_immediately": false
+"airtable_controller_sync_run_immediately": false,
+"airtable_schedule_sync_run_immediately": false,
+"airtable_access_users_sync_run_immediately": false
 ```
 
-That means the service refreshes controller, schedule, and access-user Airtable exports every 24 hours while running. It still fetches at startup if any required local export is missing. Environment variables `MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS` and `MQTT_SCHEDULE_AIRTABLE_SYNC_RUN_IMMEDIATELY` override these JSON values if set.
+That means each export refreshes every 24 hours while the service runs. All three startup fetches are off until you set the corresponding flag to `true`; set only `airtable_controller_sync_run_immediately` to `true` to fetch just controller config at startup. A missing required local export is fetched at startup when Airtable is configured, regardless of these flags, so the service can initialize. The old `airtable_sync_run_immediately` key is ignored and should be removed from the live runtime file. `MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS` and the three corresponding `MQTT_SCHEDULE_AIRTABLE_*_SYNC_RUN_IMMEDIATELY` environment variables override these JSON values.
 
 If you want the running service to ingest Tempest weather files into MongoDB automatically, set this in `/etc/mqtt_schedule/runtime.json`:
 

@@ -138,7 +138,7 @@ def test_build_weather_refresh_jobs_uses_runtime_settings(tmp_path: Path) -> Non
     assert all(job.run_immediately for job in jobs)
 
 
-def test_build_airtable_sync_jobs_uses_runtime_settings(tmp_path: Path) -> None:
+def test_build_airtable_sync_jobs_uses_runtime_settings(tmp_path: Path, monkeypatch) -> None:
     settings = RuntimeSettings(
         schedule_file=tmp_path / "airtable_schedule_data.json",
         controller_file=tmp_path / "airtable_config_data.json",
@@ -151,14 +151,32 @@ def test_build_airtable_sync_jobs_uses_runtime_settings(tmp_path: Path) -> None:
         airtable_base_id="app123",
         airtable_api_key="pat123",
         airtable_sync_seconds=300,
-        airtable_sync_run_immediately=True,
+        airtable_controller_sync_run_immediately=True,
+        airtable_schedule_sync_run_immediately=False,
+        airtable_access_users_sync_run_immediately=True,
     )
 
+    synced: list[set[str]] = []
+
+    class RecordingSyncService:
+        def __init__(self, _settings):
+            pass
+
+        def is_configured(self):
+            return True
+
+        def sync_targets(self, file_kinds):
+            synced.append(file_kinds)
+
+    monkeypatch.setattr("mqtt_schedule.cli.AirtableSyncService", RecordingSyncService)
     jobs = build_airtable_sync_jobs(settings=settings)
 
-    assert [job.job_id for job in jobs] == ["airtable-sync"]
-    assert [job.interval_seconds for job in jobs] == [300]
-    assert all(job.run_immediately for job in jobs)
+    assert [job.job_id for job in jobs] == ["airtable-sync-controller", "airtable-sync-schedule", "airtable-sync-access-users"]
+    assert [job.interval_seconds for job in jobs] == [300, 300, 300]
+    assert [job.run_immediately for job in jobs] == [True, False, True]
+    for job in jobs:
+        job.fn()
+    assert synced == [{"controller"}, {"schedule"}, {"access_users"}]
 
 
 def test_build_airtable_sync_jobs_returns_empty_when_not_configured(tmp_path: Path) -> None:
@@ -420,13 +438,14 @@ def test_ensure_required_airtable_files_syncs_when_missing(tmp_path: Path, monke
         def is_configured(self):
             return True
 
-        def sync_all(self):
-            for path in (
-                self.settings.schedule_file,
-                self.settings.controller_file,
-                self.settings.access_users_file,
-            ):
-                path.write_text('{"records": []}', encoding="utf-8")
+        def sync_targets(self, file_kinds):
+            paths = {
+                "controller": self.settings.controller_file,
+                "schedule": self.settings.schedule_file,
+                "access_users": self.settings.access_users_file,
+            }
+            for file_kind in file_kinds:
+                paths[file_kind].write_text('{"records": []}', encoding="utf-8")
             return []
 
     monkeypatch.setattr("mqtt_schedule.cli.AirtableSyncService", FakeSyncService)
@@ -577,3 +596,39 @@ def test_handle_access_request_returns_legacy_response(tmp_path: Path, capsys) -
     assert response_payload["granted"] is True
     assert response_payload["fullName"] == "John Baird"
     assert response_payload["pinNumber"] == "12345"
+
+
+def test_startup_fetches_only_missing_airtable_export(tmp_path: Path, monkeypatch) -> None:
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "airtable_schedule_data.json",
+        controller_file=tmp_path / "airtable_config_data.json",
+        access_users_file=tmp_path / "airtable_access_users.json",
+        clients_sysinfo_dir=tmp_path / "sysinfo",
+        openweather_current_file=tmp_path / "weather.json",
+        openweather_forecast_file=tmp_path / "forecast.json",
+        tempest_data_dir=tmp_path / "tempest",
+        device_serial_file=tmp_path / "serial.txt",
+        airtable_backup_dir=tmp_path / "backup",
+    )
+    settings.schedule_file.write_text('{"records": []}', encoding="utf-8")
+    settings.access_users_file.write_text('{"records": []}', encoding="utf-8")
+    synced: list[set[str]] = []
+
+    class RecordingSyncService:
+        def __init__(self, _settings):
+            pass
+
+        def required_files_missing(self):
+            return [settings.controller_file]
+
+        def is_configured(self):
+            return True
+
+        def sync_targets(self, file_kinds):
+            synced.append(file_kinds)
+            settings.controller_file.write_text('{"records": []}', encoding="utf-8")
+
+    monkeypatch.setattr("mqtt_schedule.cli.AirtableSyncService", RecordingSyncService)
+    _ensure_required_airtable_files(settings)
+
+    assert synced == [{"controller"}]
