@@ -6,6 +6,7 @@ from datetime import datetime
 from time import time
 
 from .access_control import AccessDecisionService, FileAccessUserRepository
+from .app import ControllerRepository
 from .controller_status import ControllerStatusStore, ControllerStatusUpdate
 from .csv_reporting import LegacyCsvRecorder
 from .domain import AccessDecision, AccessRequest
@@ -22,12 +23,14 @@ class AccessRequestMessageHandler:
         source_serial: str,
         csv_recorder: LegacyCsvRecorder | None = None,
         controller_status_store: ControllerStatusStore | None = None,
+        controller_repository: ControllerRepository | None = None,
     ) -> None:
         self.settings = settings
         self.maintenance_publisher = maintenance_publisher
         self.source_serial = source_serial
         self.csv_recorder = csv_recorder
         self.controller_status_store = controller_status_store
+        self.controller_repository = controller_repository
         self.logger = logging.getLogger("mqtt_schedule.inbound")
 
     def subscription_topics(self) -> list[str]:
@@ -140,6 +143,13 @@ class AccessRequestMessageHandler:
                 self.source_serial,
                 parsed_topic.destination_serial,
             )
+            return
+
+        if self.controller_repository is not None and parsed_topic.source_serial not in {
+            controller.name_link for controller in self.controller_repository.list_controllers()
+            if controller.enabled and controller.name_link
+        }:
+            self.logger.info("online_status_response_ignored reason=controller_disabled source_serial=%s", parsed_topic.source_serial)
             return
 
         try:

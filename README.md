@@ -203,12 +203,11 @@ Important Linux runtime locations:
 
 CSV rotation requires the `mqttschedule` service user to write to both `/var/lib/mqtt_schedule/` and `/var/lib/mqtt_schedule/csv_backup/`. A writable CSV file alone is not enough: rotation renames it between those directories. The installer creates the backup directory and assigns the whole state directory to `mqttschedule`.
 
-Commissioning safety:
+Controller selection:
 
-- `commissioning_only_destinations` in `runtime.json` limits service-generated commands to enabled controller serials. Controller names are labels only; MQTT topics still use serial numbers.
-- `MQTT_SCHEDULE_ONLY_DESTINATIONS` in `mqtt_schedule.env` is an optional comma-separated filter that can narrow, but not widen, the configured controllers.
-- CLI `--only-destination` can further narrow the configured filter, but it cannot widen it. A filter with no matching enabled destination fails at startup instead of publishing without a filter.
-- The Airtable controller `enabled` field is a separate requirement; both it and the commissioning entry must allow a controller before scheduled commands are sent.
+- The downloaded Airtable controller JSON named by `controller_file` is the source of controller serials and enabled flags. Scheduled commands and periodic MQTT requests use its enabled controllers.
+- `MQTT_SCHEDULE_ONLY_DESTINATIONS` and CLI `--only-destination` can temporarily narrow that set for commissioning. They cannot enable a controller disabled in Airtable.
+- Online and offline status events also use the current enabled controllers from this file. Saved status for disabled controllers is retained without generating new events.
 
 Service runtime:
 
@@ -361,29 +360,15 @@ If an existing `temperature.csv`, `transactions.csv`, or `controller_status_even
 /opt/mqtt_schedule/.venv/bin/python -m mqtt_schedule --config /etc/mqtt_schedule/runtime.json --service
 ```
 
-For commissioning controllers in service mode, edit only the `commissioning_only_destinations` value in `/etc/mqtt_schedule/runtime.json`. Do not replace the whole live file with `deploy/runtime.example.json`, which contains example values for other settings. Named entries make each serial's commissioning state explicit:
+To migrate an existing installation, remove `commissioning_only_destinations` from `/etc/mqtt_schedule/runtime.json`. Keep `controller_file` pointed at the downloaded Airtable controller JSON and set each controller's `enabled` field there. The application rejects a runtime file that still contains the old list so it cannot silently apply two controller sources.
 
-```json
-"commissioning_only_destinations": {
-  "Controller_1": {"serial": "242606363309393", "enabled": true},
-  "Controller_2": {"serial": "150232028360370", "enabled": false},
-  "Controller_4": {"serial": "251096704254951", "enabled": true}
-}
-```
-
-Only entries with JSON boolean `true` are selected. `false` keeps a controller visible in the configuration without sending scheduled commands to it. An empty object or a dictionary with no enabled entries is rejected so a typo cannot silently remove the safety filter. The previous list format remains supported:
-
-```json
-"commissioning_only_destinations": ["242606363309393"]
-```
-
-Use `[]` only if you deliberately want no commissioning filter. An optional environment filter can narrow the JSON selection further:
+An optional temporary filter can be set in `/etc/mqtt_schedule/mqtt_schedule.env`:
 
 ```bash
 MQTT_SCHEDULE_ONLY_DESTINATIONS=242606363309393
 ```
 
-On Linux, after installing the updated code but before restarting the service, edit the live JSON with `sudo nano /etc/mqtt_schedule/runtime.json`. Check it with `sudo python3 -m json.tool /etc/mqtt_schedule/runtime.json >/dev/null`, then restart with `sudo systemctl restart mqtt_schedule` and inspect `sudo journalctl -u mqtt_schedule -n 80 --no-pager`. Changing JSON alone needs a service restart, not `pip install .`; updating Python code needs an install into `/opt/mqtt_schedule/.venv` before restart.
+After editing the live JSON, check it with `sudo python3 -m json.tool /etc/mqtt_schedule/runtime.json >/dev/null`, then restart with `sudo systemctl restart mqtt_schedule` and inspect `sudo journalctl -u mqtt_schedule -n 80 --no-pager`. Updating Python code requires an install into `/opt/mqtt_schedule/.venv` before restart.
 
 For live weather commissioning:
 

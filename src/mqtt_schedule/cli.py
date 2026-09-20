@@ -130,6 +130,7 @@ def main() -> int:
             source_serial=source_serial,
             csv_recorder=csv_recorder,
             controller_status_store=controller_status_store,
+            controller_repository=FileControllerRepository(settings.controller_file),
         )
         subscriptions.extend(access_request_handler.subscription_topics())
         for topic in access_request_handler.subscription_topics():
@@ -219,6 +220,7 @@ def main() -> int:
         controller_status_jobs = build_controller_status_jobs(
             settings=settings,
             controller_status_store=controller_status_store,
+            controller_repository=controller_repository,
         )
         if args.service:
             if args.refresh_weather_now:
@@ -626,6 +628,7 @@ def build_controller_status_jobs(
     *,
     settings: RuntimeSettings,
     controller_status_store: ControllerStatusStore | None,
+    controller_repository: ControllerRepository,
 ) -> list[PeriodicJob]:
     logger = logging.getLogger("mqtt_schedule.cli")
     if controller_status_store is None:
@@ -635,6 +638,7 @@ def build_controller_status_jobs(
     def refresh_controller_status() -> None:
         controller_status_store.refresh_online_flags(
             now=datetime.now(),
+            enabled_serials={controller.name_link for controller in controller_repository.list_controllers() if controller.enabled and controller.name_link},
             offline_after_seconds=settings.controller_offline_after_seconds,
             online_recovery_after_seconds=settings.controller_online_recovery_after_seconds,
         )

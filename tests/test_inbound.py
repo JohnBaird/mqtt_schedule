@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from mqtt_schedule.airtable_repositories import FileControllerRepository
 from mqtt_schedule.controller_status import ControllerStatusStore
 from mqtt_schedule.csv_reporting import LegacyCsvRecorder
 from mqtt_schedule.inbound import AccessRequestMessageHandler
@@ -748,3 +749,43 @@ def test_transaction_response_handler_consumes_legacy_payload(tmp_path: Path, ca
     assert csv_lines[0] == "_iD,latency,dateTime,transactionType,idNumber,UniqueId,fullName,serialSource"
     assert csv_lines[1].startswith("txn-1,")
     assert ",2026-06-22  09:55:37,irrigation,12345,group-a,John Baird,242606363309393" in csv_lines[1]
+
+
+def test_disabled_controller_response_does_not_update_status_or_request_config(tmp_path: Path) -> None:
+    controller_file = tmp_path / "controllers.json"
+    controller_file.write_text(json.dumps({"records": [
+        {"id": "rec-1", "fields": {"Name": "Controller_1", "nameLink": "242606363309393", "enabled": False}}
+    ]}), encoding="utf-8")
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "schedules.json",
+        controller_file=controller_file,
+        access_users_file=tmp_path / "users.json",
+        clients_sysinfo_dir=tmp_path / "sysinfo",
+        openweather_current_file=tmp_path / "weather.json",
+        openweather_forecast_file=tmp_path / "forecast.json",
+        tempest_data_dir=tmp_path / "tempest",
+        device_serial_file=tmp_path / "serial.txt",
+    )
+    client = RecordingMQTTClient()
+    publisher = MQTTMaintenancePublisher(
+        encoder=MQTTCommandEncoder(MQTTBrokerSettings(
+            host="localhost", port=1883, source_serial="281261212083555"
+        )),
+        client=client,
+    )
+    status_file = tmp_path / "controller_status.json"
+    handler = AccessRequestMessageHandler(
+        settings=settings,
+        maintenance_publisher=publisher,
+        source_serial="281261212083555",
+        controller_status_store=ControllerStatusStore(status_file),
+        controller_repository=FileControllerRepository(controller_file),
+    )
+
+    handler.handle_message(MQTTInboundMessage(
+        topic="SPV1.0/irrigation/stc_online_status_response/242606363309393/281261212083555",
+        payload=json.dumps({"response": "online", "reason": "restarted"}),
+    ))
+
+    assert not status_file.exists()
+    assert client.published == []

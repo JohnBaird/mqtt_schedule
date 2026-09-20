@@ -180,3 +180,76 @@ def test_controller_status_recovery_requires_stable_online_window(tmp_path: Path
     assert csv_lines[2] == (
         "242606363309393,online_recovered,2026-06-22T16:10:26,2026-06-22T16:12:27,online,requested,120"
     )
+
+
+def test_status_refresh_ignores_saved_disabled_controller(tmp_path: Path) -> None:
+    status_file = tmp_path / "controller_status.json"
+    store = ControllerStatusStore(status_file)
+    seen_at = datetime(2026, 9, 19, 16, 28, 34)
+    store.record_online_status(ControllerStatusUpdate(
+        source_serial="167227924461412",
+        response="online",
+        reason="requested",
+        seen_at=seen_at,
+    ))
+
+    store.refresh_online_flags(
+        now=seen_at + timedelta(seconds=200),
+        enabled_serials=set(),
+        offline_after_seconds=180,
+        online_recovery_after_seconds=120,
+    )
+
+    controller = json.loads(status_file.read_text(encoding="utf-8"))["controllers"]["167227924461412"]
+    assert controller["online"] is True
+    assert "last_offline_at" not in controller
+
+
+def test_status_refresh_reports_enabled_controller_that_never_replied(tmp_path: Path) -> None:
+    status_file = tmp_path / "controller_status.json"
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "schedules.json",
+        controller_file=tmp_path / "controllers.json",
+        access_users_file=tmp_path / "users.json",
+        clients_sysinfo_dir=tmp_path / "sysinfo",
+        openweather_current_file=tmp_path / "weather.json",
+        openweather_forecast_file=tmp_path / "forecast.json",
+        tempest_data_dir=tmp_path / "tempest",
+        device_serial_file=tmp_path / "serial.txt",
+        controller_status_file=status_file,
+        controller_status_csv_file=tmp_path / "events.csv",
+        transaction_csv_file=tmp_path / "transactions.csv",
+        temperature_csv_file=tmp_path / "temperature.csv",
+        csv_backup_dir=tmp_path / "backups",
+    )
+    store = ControllerStatusStore(status_file, csv_recorder=LegacyCsvRecorder.from_settings(settings))
+    start = datetime(2026, 9, 19, 16, 0, 0)
+    kwargs = dict(enabled_serials={"242606363309393"}, offline_after_seconds=180, online_recovery_after_seconds=120)
+    store.refresh_online_flags(now=start, **kwargs)
+    store.refresh_online_flags(now=start + timedelta(seconds=181), **kwargs)
+    store.refresh_online_flags(now=start + timedelta(seconds=241), **kwargs)
+
+    controller = json.loads(status_file.read_text(encoding="utf-8"))["controllers"]["242606363309393"]
+    assert controller["online"] is False
+    assert controller["last_offline_at"] == (start + timedelta(seconds=181)).isoformat()
+    lines = settings.controller_status_csv_file.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert lines[1].split(",")[1] == "offline_timeout"
+
+
+def test_reenabled_controller_without_reply_starts_new_timeout(tmp_path: Path) -> None:
+    status_file = tmp_path / "controller_status.json"
+    store = ControllerStatusStore(status_file)
+    serial = "242606363309393"
+    start = datetime(2026, 9, 19, 16, 0, 0)
+    timeout = dict(offline_after_seconds=180, online_recovery_after_seconds=120)
+
+    store.refresh_online_flags(now=start, enabled_serials={serial}, **timeout)
+    store.refresh_online_flags(now=start + timedelta(seconds=60), enabled_serials=set(), **timeout)
+    restarted_at = start + timedelta(seconds=600)
+    store.refresh_online_flags(now=restarted_at, enabled_serials={serial}, **timeout)
+    store.refresh_online_flags(now=restarted_at + timedelta(seconds=181), enabled_serials={serial}, **timeout)
+
+    controller = json.loads(status_file.read_text(encoding="utf-8"))["controllers"][serial]
+    assert controller["monitoring_started_at"] == restarted_at.isoformat()
+    assert controller["last_offline_at"] == (restarted_at + timedelta(seconds=181)).isoformat()

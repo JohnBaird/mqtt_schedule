@@ -33,6 +33,8 @@ class ControllerStatusStore:
         was_online = bool(controller.get("online", False))
 
         controller["last_seen_at"] = seen_at
+        controller.pop("monitoring_started_at", None)
+        controller.pop("offline_reported", None)
         controller["last_response"] = update.response
         controller["last_reason"] = update.reason
         if update.response == "online":
@@ -66,18 +68,57 @@ class ControllerStatusStore:
         self,
         *,
         now: datetime,
+        enabled_serials: set[str] | None = None,
         offline_after_seconds: int,
         online_recovery_after_seconds: int,
     ) -> None:
         payload = self._load()
         controllers = payload.setdefault("controllers", {})
         changed_serials: list[str] = []
+        dirty = False
+        if enabled_serials is not None:
+            for source_serial in enabled_serials:
+                if source_serial not in controllers:
+                    controllers[source_serial] = {
+                        "online": False,
+                        "monitoring_started_at": now.isoformat(),
+                    }
+                    dirty = True
 
         for source_serial, controller in controllers.items():
+            if enabled_serials is not None and source_serial not in enabled_serials:
+                if isinstance(controller, dict) and "monitoring_started_at" in controller:
+                    controller.pop("monitoring_started_at")
+                    controller.pop("offline_reported", None)
+                    dirty = True
+                continue
             if not isinstance(controller, dict):
                 continue
             last_seen_at_raw = controller.get("last_seen_at")
             if not isinstance(last_seen_at_raw, str) or not last_seen_at_raw.strip():
+                started_at_raw = controller.get("monitoring_started_at")
+                if not isinstance(started_at_raw, str):
+                    controller["monitoring_started_at"] = now.isoformat()
+                    dirty = True
+                    continue
+                if isinstance(started_at_raw, str):
+                    try:
+                        started_at = datetime.fromisoformat(started_at_raw)
+                    except ValueError:
+                        started_at = now
+                    if not controller.get("offline_reported") and (now - started_at).total_seconds() > offline_after_seconds:
+                        controller["offline_reported"] = True
+                        controller["last_offline_at"] = now.isoformat()
+                        if self.csv_recorder is not None:
+                            self.csv_recorder.record_controller_offline_event(
+                                source_serial=source_serial,
+                                last_seen_at="",
+                                detected_at=now.isoformat(),
+                                last_response="",
+                                last_reason="",
+                                offline_after_seconds=offline_after_seconds,
+                            )
+                        changed_serials.append(source_serial)
                 continue
             try:
                 last_seen_at = datetime.fromisoformat(last_seen_at_raw)
@@ -89,6 +130,7 @@ class ControllerStatusStore:
 
             if currently_online and not is_fresh:
                 controller["online"] = False
+                controller["offline_reported"] = True
                 controller["last_offline_at"] = now.isoformat()
                 controller.pop("recovery_started_at", None)
                 if self.csv_recorder is not None:
@@ -139,7 +181,7 @@ class ControllerStatusStore:
                 )
             changed_serials.append(source_serial)
 
-        if not changed_serials:
+        if not changed_serials and not dirty:
             return
 
         payload["updated_at"] = now.isoformat()
