@@ -1,0 +1,36 @@
+{
+  "records": [
+    {
+      "id": "recExampleSchedule",
+      "fields": {
+        "duration_on": 60,
+        "Steps": "Example only",
+        "output-type": [
+          "output-general"
+        ],
+        "enabled": false,
+        "seasonNames": [
+          "Example-Season"
+        ],
+        "end_time": 1200,
+        "day_of_week": [
+          "Monday"
+        ],
+        "zoneNumber": [
+          "1"
+        ],
+        "start_time": 1100,
+        "groupSelect": [
+          "Example-Group"
+        ],
+        "zone_category": "Example",
+        "location_description (from zones)": [
+          "Example zone"
+        ],
+        "zones": [
+          "Example zone"
+        ]
+      }
+    }
+  ]
+}

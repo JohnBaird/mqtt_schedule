@@ -407,6 +407,7 @@ def test_ensure_required_airtable_files_syncs_when_missing(tmp_path: Path, monke
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
         device_serial_file=tmp_path / "device_serial.txt",
+        airtable_backup_dir=tmp_path / "airtable_backup",
     )
 
     class FakeSyncService:

@@ -1,0 +1,19 @@
+{
+  "records": [
+    {
+      "id": "recExampleUser",
+      "fields": {
+        "firstName": "Example",
+        "enabled": "false",
+        "pinCode": "0000",
+        "pinNumber": "0000",
+        "accessGroups": [
+          "Example-Group"
+        ],
+        "faceId": "example-face-id",
+        "lastName": "User",
+        "cardNumber": "example-card-id"
+      }
+    }
+  ]
+}

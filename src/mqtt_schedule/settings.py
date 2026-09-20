@@ -23,6 +23,7 @@ class RuntimeSettings:
     transaction_csv_file: Path = Path("/var/lib/mqtt_schedule/transactions.csv")
     temperature_csv_file: Path = Path("/var/lib/mqtt_schedule/temperature.csv")
     csv_backup_dir: Path = Path("/var/lib/mqtt_schedule/csv_backup")
+    airtable_backup_dir: Path = Path("/var/lib/mqtt_schedule/airtable_backup")
     commissioning_only_destinations: tuple[str, ...] = ()
     source_serial_override: str | None = None
     tempest_station_id: int = 201749
@@ -175,6 +176,7 @@ class RuntimeSettings:
             temperature_csv_file=temperature_csv_file,
             controller_status_csv_file=controller_status_csv_file,
             csv_backup_dir=csv_backup_dir,
+            airtable_backup_dir=Path(os.environ.get("MQTT_SCHEDULE_AIRTABLE_BACKUP_DIR") or state_dir / "airtable_backup"),
             openweather_current_file=openweather_current_file,
             openweather_forecast_file=openweather_forecast_file,
             tempest_data_dir=tempest_data_dir,
@@ -289,6 +291,7 @@ class RuntimeSettings:
             temperature_csv_file=Path(data.get("temperature_csv_file", "/var/lib/mqtt_schedule/temperature.csv")),
             controller_status_csv_file=Path(data.get("controller_status_csv_file", "/var/lib/mqtt_schedule/controller_status_events.csv")),
             csv_backup_dir=Path(data.get("csv_backup_dir", "/var/lib/mqtt_schedule/csv_backup")),
+            airtable_backup_dir=Path(data.get("airtable_backup_dir", "/var/lib/mqtt_schedule/airtable_backup")),
             openweather_current_file=Path(data["openweather_current_file"]),
             openweather_forecast_file=Path(data["openweather_forecast_file"]),
             tempest_data_dir=Path(data["tempest_data_dir"]),
@@ -383,6 +386,7 @@ class RuntimeSettings:
             temperature_csv_file=_env_path("MQTT_SCHEDULE_TEMPERATURE_CSV_FILE", self.temperature_csv_file),
             controller_status_csv_file=_env_path("MQTT_SCHEDULE_CONTROLLER_STATUS_CSV_FILE", self.controller_status_csv_file),
             csv_backup_dir=_env_path("MQTT_SCHEDULE_CSV_BACKUP_DIR", self.csv_backup_dir),
+            airtable_backup_dir=_env_path("MQTT_SCHEDULE_AIRTABLE_BACKUP_DIR", self.airtable_backup_dir),
             openweather_current_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_CURRENT_FILE", self.openweather_current_file),
             openweather_forecast_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_FORECAST_FILE", self.openweather_forecast_file),
             tempest_data_dir=_env_path("MQTT_SCHEDULE_TEMPEST_DATA_DIR", self.tempest_data_dir),

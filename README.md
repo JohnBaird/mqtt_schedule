@@ -180,6 +180,8 @@ Important Linux runtime locations:
   Local schedule export from Airtable.
 - `/etc/mqtt_schedule/airtable_access_users.json`
   Local access-user export from Airtable.
+- `/var/lib/mqtt_schedule/airtable_backup/`
+  Private last-known-good copies of the three Airtable exports.
 - `/etc/mqtt_schedule/ow_records_current.json`
   OpenWeather current conditions cache.
 - `/etc/mqtt_schedule/ow_records_forecast.json`
@@ -238,8 +240,10 @@ Current inbound MQTT behavior:
 Current Airtable sync behavior:
 
 - `python -m mqtt_schedule --sync-airtable-now` fetches controller, schedule, and access-user exports from Airtable into the local JSON contract files.
-- if `airtable_schedule_data.json`, `airtable_config_data.json`, or `airtable_access_users.json` is missing at startup, the service immediately attempts an Airtable sync before continuing.
-- identical Airtable payloads do not overwrite the existing local files.
+- Existing local exports let the service start without contacting Airtable. Valid exports are copied to `airtable_backup_dir` (default `/var/lib/mqtt_schedule/airtable_backup`) as private last-known-good snapshots.
+- If a required export is missing at startup, the service tries Airtable sync when configured, then restores any still-missing file from a validated private snapshot. It fails clearly if neither source has the file.
+- Successful manual and periodic syncs refresh the private snapshots. Identical Airtable payloads do not overwrite the existing local files.
+- `deploy/examples/*.example.json` contains synthetic, disabled reference records matching the server export shapes. These examples are never used as live fallback data.
 - service mode can also run periodic Airtable refresh using `airtable_sync_seconds`.
 - if `airtable_sync_run_immediately` is enabled, the Airtable refresh job also runs once at service startup.
 - The default interval is 86400 seconds (24 hours); the periodic job does not run immediately when all required local exports are present.

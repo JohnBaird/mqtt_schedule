@@ -12,3 +12,4 @@ env/
 dist/
 build/
 *.egg-info/
+local_airtable_exports/

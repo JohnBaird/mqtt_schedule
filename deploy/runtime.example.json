@@ -6,6 +6,7 @@
   "transaction_csv_file": "/var/lib/mqtt_schedule/transactions.csv",
   "temperature_csv_file": "/var/lib/mqtt_schedule/temperature.csv",
   "csv_backup_dir": "/var/lib/mqtt_schedule/csv_backup",
+  "airtable_backup_dir": "/var/lib/mqtt_schedule/airtable_backup",
   "openweather_current_file": "/etc/mqtt_schedule/ow_records_current.json",
   "openweather_forecast_file": "/etc/mqtt_schedule/ow_records_forecast.json",
   "tempest_data_dir": "/etc/mqtt_schedule/tempest_weather_data",

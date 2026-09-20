@@ -16,6 +16,7 @@ from .airtable_repositories import (
 from .access_control import AccessDecisionService, FileAccessUserRepository
 from .app import ControllerRepository, FilteredControllerRepository, SchedulerApplication
 from .airtable_sync import AirtableSyncService
+from .airtable_backup import restore_missing_airtable_files, save_airtable_backups
 from .controller_status import ControllerStatusStore
 from .csv_reporting import LegacyCsvRecorder
 from .hostinfo import HostInfoProvider
@@ -342,6 +343,7 @@ def build_airtable_sync_jobs(
 
     def sync_airtable() -> None:
         sync_service.sync_all()
+        save_airtable_backups(settings)
 
     logger.info(
         "airtable_sync_configured interval_seconds=%s run_immediately=%s",
@@ -487,6 +489,7 @@ def _validate_airtable_files(settings: RuntimeSettings) -> int:
 
 def _sync_airtable_now(settings: RuntimeSettings) -> int:
     results = AirtableSyncService(settings).sync_all()
+    save_airtable_backups(settings)
     for result in results:
         print(
             "airtable_sync "
@@ -704,24 +707,27 @@ def _ensure_required_airtable_files(settings: RuntimeSettings) -> None:
     logger = logging.getLogger("mqtt_schedule.cli")
     sync_service = AirtableSyncService(settings)
     missing_paths = sync_service.required_files_missing()
-    if not missing_paths:
-        return
-    if not sync_service.is_configured():
-        missing_text = ",".join(str(path) for path in missing_paths)
-        raise RuntimeError(
-            f"Required Airtable files are missing and Airtable sync is not configured: {missing_text}"
+    sync_error: Exception | None = None
+    if missing_paths and sync_service.is_configured():
+        logger.info(
+            "airtable_sync_startup_fetch missing_count=%s missing_paths=%s",
+            len(missing_paths),
+            ",".join(str(path) for path in missing_paths),
         )
-    logger.info(
-        "airtable_sync_startup_fetch missing_count=%s missing_paths=%s",
-        len(missing_paths),
-        ",".join(str(path) for path in missing_paths),
-    )
-    sync_service.sync_all()
+        try:
+            sync_service.sync_all()
+        except Exception as exc:
+            sync_error = exc
+            logger.warning("airtable_sync_startup_failed detail=%s", exc)
+
+    restore_missing_airtable_files(settings)
     still_missing = [path for path in _required_airtable_files(settings) if not path.exists()]
     if still_missing:
+        missing_text = ",".join(str(path) for path in still_missing)
         raise RuntimeError(
-            f"Airtable sync completed but required files are still missing: {','.join(str(path) for path in still_missing)}"
-        )
+            f"Required Airtable files are missing after sync and local backup restore: {missing_text}"
+        ) from sync_error
+    save_airtable_backups(settings)
 
 
 def _required_airtable_files(settings: RuntimeSettings) -> list[Path]:

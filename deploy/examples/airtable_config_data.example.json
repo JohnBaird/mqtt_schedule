@@ -1,0 +1,16 @@
+{
+  "records": [
+    {
+      "id": "recExampleController",
+      "fields": {
+        "ipAddress": "192.0.2.10",
+        "enabled": false,
+        "groupSelect": [
+          "Example-Group"
+        ],
+        "Name": "Example_Controller",
+        "nameLink": "000000000000001"
+      }
+    }
+  ]
+}

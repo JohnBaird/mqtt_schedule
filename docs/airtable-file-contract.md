@@ -8,7 +8,9 @@ This means the scheduler runtime does not treat Airtable as its day-to-day sourc
 - `/etc/mqtt_schedule/airtable_config_data.json`
 - `/etc/mqtt_schedule/airtable_access_users.json`
 
-The scheduler service consumes those files as its source of truth.
+The scheduler service consumes those files as its source of truth. At startup it saves validated copies under `/var/lib/mqtt_schedule/airtable_backup/` (or `airtable_backup_dir` from `runtime.json`). If a live export is missing and Airtable cannot supply it, startup restores that file from the private backup. A successful sync refreshes the backup. The backup includes access-user credentials and stays on the server with private permissions.
+
+The synthetic `deploy/examples/*.example.json` files document the export shapes. They are disabled examples and are never loaded as production configuration.
 
 ### Why This Contract Exists
 
@@ -32,7 +34,7 @@ The rewrite now includes a separate Airtable sync path:
 ```
 
 - startup safety:
-  if any of the three required Airtable files are missing when `mqtt_schedule` starts, it immediately attempts an Airtable sync before continuing
+  if any required export is missing, startup attempts sync when configured and then restores still-missing files from validated local backups
 
 - no-op overwrite protection:
   if the fetched Airtable payload is identical to the current local JSON file, the file is left untouched instead of being rewritten
