@@ -241,10 +241,10 @@ Current Airtable sync behavior:
 
 - `python -m mqtt_schedule --sync-airtable-now` fetches controller, schedule, and access-user exports from Airtable into the local JSON contract files.
 - Existing local exports let the service start without contacting Airtable. Valid exports are copied to `airtable_backup_dir` (default `/var/lib/mqtt_schedule/airtable_backup`) as private last-known-good snapshots.
-- If a required export is missing at startup, the service tries Airtable sync when configured, then restores any still-missing file from a validated private snapshot. It fails clearly if neither source has the file.
+- If a required export is missing at startup, the service tries Airtable when sync is enabled, then restores any still-missing file from a validated private snapshot. It fails clearly if neither source has the file.
 - Successful manual and periodic syncs refresh the private snapshots. Identical Airtable payloads do not overwrite the existing local files.
 - `deploy/examples/*.example.json` contains synthetic, disabled reference records matching the server export shapes. These examples are never used as live fallback data.
-- service mode can also run periodic Airtable refresh using `airtable_sync_seconds`.
+- Service mode refreshes Airtable exports periodically using `airtable_sync_seconds`. Set it to `0` to stop all automatic Airtable requests, including startup refreshes and missing-file fetches. Explicit `--sync-airtable-now` still works.
 - Separate `airtable_controller_sync_run_immediately`, `airtable_schedule_sync_run_immediately`, and `airtable_access_users_sync_run_immediately` flags control which exports are fetched when the service starts. All default to `false`.
 - The default interval is 86400 seconds (24 hours); the periodic job does not run immediately when all required local exports are present.
 
@@ -418,7 +418,7 @@ If you want the running service to refresh Airtable exports automatically, set t
 "airtable_access_users_sync_run_immediately": false
 ```
 
-That means each export refreshes every 24 hours while the service runs. All three startup fetches are off until you set the corresponding flag to `true`; set only `airtable_controller_sync_run_immediately` to `true` to fetch just controller config at startup. A missing required local export is fetched at startup when Airtable is configured, regardless of these flags, so the service can initialize. The old `airtable_sync_run_immediately` key is ignored and should be removed from the live runtime file. `MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS` and the three corresponding `MQTT_SCHEDULE_AIRTABLE_*_SYNC_RUN_IMMEDIATELY` environment variables override these JSON values.
+With `86400`, each export refreshes every 24 hours while the service runs. Set `airtable_sync_seconds` to `0` to disable all automatic Airtable API requests. This takes precedence over the three `*_sync_run_immediately` flags and missing-file startup fetches. The service then uses existing local exports or validated private backups; startup fails if a required file is missing from both. Explicit `--sync-airtable-now` still fetches all three exports. With a positive interval, set only `airtable_controller_sync_run_immediately` to `true` to fetch just controller config at startup. The old `airtable_sync_run_immediately` key is ignored and should be removed from the live runtime file. `MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS` and the three corresponding `MQTT_SCHEDULE_AIRTABLE_*_SYNC_RUN_IMMEDIATELY` environment variables override these JSON values.
 
 If you want the running service to ingest Tempest weather files into MongoDB automatically, set this in `/etc/mqtt_schedule/runtime.json`:
 
@@ -567,6 +567,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
 
+- `7a0af15` Refresh README update history
 - `c6979d7` Split Airtable startup sync by export
 - `2adf260` Keep private Airtable backups for offline startup
 - `3c87721` Use Airtable controller enablement for status reporting
@@ -586,7 +587,6 @@ Recent history from git (through the commit before this README edit; run the com
 - `239dd50` Add explicit access decision diagnostics
 - `53a14d6` Add Airtable sync with startup fetch safeguard
 - `7c3fd0f` Request config file after controller restart
-- `dda9aa1` Add legacy CSV reporting for inbound responses
 
 To see the latest 20 commits at any time:
 

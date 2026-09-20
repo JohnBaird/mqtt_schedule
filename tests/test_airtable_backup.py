@@ -1,9 +1,10 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from mqtt_schedule.cli import _ensure_required_airtable_files
+from mqtt_schedule.cli import _ensure_required_airtable_files, build_airtable_sync_jobs
 from mqtt_schedule.settings import RuntimeSettings
 
 
@@ -67,6 +68,41 @@ def test_failed_startup_sync_restores_missing_file_from_backup(tmp_path: Path, m
     monkeypatch.setattr("mqtt_schedule.cli.AirtableSyncService", FailingSyncService)
     _ensure_required_airtable_files(settings)
     assert settings.schedule_file.exists()
+
+
+def test_zero_interval_uses_backup_without_any_automatic_airtable_call(tmp_path: Path, monkeypatch) -> None:
+    settings = _settings(tmp_path)
+    _write_examples(settings)
+    _ensure_required_airtable_files(settings)
+    original_users = settings.access_users_file.read_bytes()
+    settings.access_users_file.unlink()
+    settings = replace(
+        settings,
+        airtable_sync_seconds=0,
+        airtable_access_users_sync_run_immediately=True,
+        airtable_api_key="pat123",
+        airtable_base_id="app123",
+    )
+
+    class NoNetworkSyncService:
+        def __init__(self, _settings):
+            self.settings = _settings
+
+        def required_files_missing(self):
+            return [self.settings.access_users_file]
+
+        def is_configured(self):
+            return True
+
+        def sync_targets(self, file_kinds):
+            raise AssertionError("zero interval must not fetch Airtable")
+
+    monkeypatch.setattr("mqtt_schedule.cli.AirtableSyncService", NoNetworkSyncService)
+
+    assert build_airtable_sync_jobs(settings=settings) == []
+    _ensure_required_airtable_files(settings)
+
+    assert settings.access_users_file.read_bytes() == original_users
 
 
 def test_missing_exports_without_sync_or_backup_fail(tmp_path: Path) -> None:

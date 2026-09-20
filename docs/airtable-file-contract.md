@@ -8,7 +8,7 @@ This means the scheduler runtime does not treat Airtable as its day-to-day sourc
 - `/etc/mqtt_schedule/airtable_config_data.json`
 - `/etc/mqtt_schedule/airtable_access_users.json`
 
-The scheduler service consumes those files as its source of truth. At startup it saves validated copies under `/var/lib/mqtt_schedule/airtable_backup/` (or `airtable_backup_dir` from `runtime.json`). If a live export is missing and Airtable cannot supply it, startup restores that file from the private backup. A successful sync refreshes the backup. The backup includes access-user credentials and stays on the server with private permissions.
+The scheduler service consumes those files as its source of truth. At startup it saves validated copies under `/var/lib/mqtt_schedule/airtable_backup/` (or `airtable_backup_dir` from `runtime.json`). If a live export is missing, startup restores it from the private backup when Airtable sync is disabled or a fetch fails. A successful sync refreshes the backup. The backup includes access-user credentials and stays on the server with private permissions.
 
 The synthetic `deploy/examples/*.example.json` files document the export shapes. They are disabled examples and are never loaded as production configuration.
 
@@ -34,9 +34,11 @@ The rewrite now includes a separate Airtable sync path:
 ```
 
 - startup safety:
-  if any required export is missing, startup fetches only the missing export when configured and then restores still-missing files from validated local backups
+  if any required export is missing and `airtable_sync_seconds` is positive, startup fetches only the missing export when configured and then restores still-missing files from validated local backups
 - optional startup refresh:
   three independent `airtable_*_sync_run_immediately` flags choose whether controller, schedule, or access-user exports are fetched when the service starts; all default to `false`
+- disabled automatic sync:
+  `"airtable_sync_seconds": 0` disables periodic and startup API calls, regardless of the three startup flags; existing files or validated backups are required. The explicit `--sync-airtable-now` command still fetches exports.
 
 - no-op overwrite protection:
   if the fetched Airtable payload is identical to the current local JSON file, the file is left untouched instead of being rewritten

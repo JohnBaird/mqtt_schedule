@@ -716,7 +716,9 @@ def _ensure_required_airtable_files(settings: RuntimeSettings) -> None:
     sync_service = AirtableSyncService(settings)
     missing_paths = set(sync_service.required_files_missing())
     sync_error: Exception | None = None
-    if missing_paths and sync_service.is_configured():
+    if missing_paths and settings.airtable_sync_seconds <= 0:
+        logger.info("airtable_sync_startup_skipped reason=disabled interval_seconds=%s", settings.airtable_sync_seconds)
+    if missing_paths and settings.airtable_sync_seconds > 0 and sync_service.is_configured():
         for file_kind, path in (
             ("controller", settings.controller_file),
             ("schedule", settings.schedule_file),

@@ -386,6 +386,7 @@ def test_sync_airtable_now_prints_results(tmp_path: Path, capsys, monkeypatch) -
         openweather_forecast_file=tmp_path / "ow_records_forecast.json",
         tempest_data_dir=tmp_path / "tempest_weather_data",
         device_serial_file=tmp_path / "device_serial.txt",
+        airtable_sync_seconds=0,
     )
 
     class FakeSyncService:
