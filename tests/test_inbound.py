@@ -751,7 +751,7 @@ def test_transaction_response_handler_consumes_legacy_payload(tmp_path: Path, ca
     assert ",2026-06-22  09:55:37,irrigation,12345,group-a,John Baird,242606363309393" in csv_lines[1]
 
 
-def test_disabled_controller_response_does_not_update_status_or_request_config(tmp_path: Path) -> None:
+def test_disabled_controller_status_messages_are_ignored(tmp_path: Path) -> None:
     controller_file = tmp_path / "controllers.json"
     controller_file.write_text(json.dumps({"records": [
         {"id": "rec-1", "fields": {"Name": "Controller_1", "nameLink": "242606363309393", "enabled": False}}
@@ -782,6 +782,10 @@ def test_disabled_controller_response_does_not_update_status_or_request_config(t
         controller_repository=FileControllerRepository(controller_file),
     )
 
+    handler.handle_message(MQTTInboundMessage(
+        topic="SPV1.0/irrigation/stc_online_status_request/242606363309393/281261212083555",
+        payload=json.dumps({"_iD": "req-1"}),
+    ))
     handler.handle_message(MQTTInboundMessage(
         topic="SPV1.0/irrigation/stc_online_status_response/242606363309393/281261212083555",
         payload=json.dumps({"response": "online", "reason": "restarted"}),

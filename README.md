@@ -209,7 +209,7 @@ Controller selection:
 
 - The downloaded Airtable controller JSON named by `controller_file` is the source of controller serials and enabled flags. Scheduled commands and periodic MQTT requests use its enabled controllers.
 - `MQTT_SCHEDULE_ONLY_DESTINATIONS` and CLI `--only-destination` can temporarily narrow that set for commissioning. They cannot enable a controller disabled in Airtable.
-- Online and offline status events also use the current enabled controllers from this file. Saved status for disabled controllers is retained without generating new events.
+- Online and offline status handling uses only controllers currently enabled in this file. The periodic refresh removes disabled controllers from `controller_status.json` without generating an event; their earlier CSV events remain as history.
 
 Service runtime:
 
@@ -279,8 +279,8 @@ Controller status settings:
 - `controller_status_file` defaults to `/var/lib/mqtt_schedule/controller_status.json`
 - `controller_offline_after_seconds` defaults to `180`
 - `controller_online_recovery_after_seconds` defaults to `120`
-- each inbound `stc_online_status_response` updates that file with the controller's last seen timestamp, response, reason, and restart/config-sync markers
-- the service recalculates controller online/offline state once per minute from `last_seen_at`, so the file stays bounded to one current-state entry per controller instead of growing as a history log
+- inbound `stc_online_status_response` from an enabled controller updates that file with the controller's last seen timestamp, response, reason, and restart/config-sync markers; status requests and responses from disabled controllers are ignored
+- the service recalculates controller online/offline state once per minute from `last_seen_at`, keeping one current-state entry per enabled controller instead of growing as a history log
 - when a controller transitions to offline because it exceeded `controller_offline_after_seconds`, one `offline_timeout` row is appended to `controller_status_csv_file`
 - when a previously offline controller stays healthy for at least `controller_online_recovery_after_seconds`, one `online_recovered` row is appended to `controller_status_csv_file`
 
@@ -567,6 +567,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
 
+- `a7fe1e0` Disable automatic Airtable calls at zero interval
 - `7a0af15` Refresh README update history
 - `c6979d7` Split Airtable startup sync by export
 - `2adf260` Keep private Airtable backups for offline startup
@@ -586,7 +587,6 @@ Recent history from git (through the commit before this README edit; run the com
 - `20e5913` Track controller online status in state file
 - `239dd50` Add explicit access decision diagnostics
 - `53a14d6` Add Airtable sync with startup fetch safeguard
-- `7c3fd0f` Request config file after controller restart
 
 To see the latest 20 commits at any time:
 

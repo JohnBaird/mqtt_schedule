@@ -2,6 +2,8 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from mqtt_schedule.airtable_repositories import FileControllerRepository
+from mqtt_schedule.cli import build_controller_status_jobs
 from mqtt_schedule.controller_status import ControllerStatusStore, ControllerStatusUpdate
 from mqtt_schedule.csv_reporting import LegacyCsvRecorder
 from mqtt_schedule.settings import RuntimeSettings
@@ -182,7 +184,7 @@ def test_controller_status_recovery_requires_stable_online_window(tmp_path: Path
     )
 
 
-def test_status_refresh_ignores_saved_disabled_controller(tmp_path: Path) -> None:
+def test_status_refresh_removes_saved_disabled_controller(tmp_path: Path) -> None:
     status_file = tmp_path / "controller_status.json"
     store = ControllerStatusStore(status_file)
     seen_at = datetime(2026, 9, 19, 16, 28, 34)
@@ -200,9 +202,45 @@ def test_status_refresh_ignores_saved_disabled_controller(tmp_path: Path) -> Non
         online_recovery_after_seconds=120,
     )
 
-    controller = json.loads(status_file.read_text(encoding="utf-8"))["controllers"]["167227924461412"]
-    assert controller["online"] is True
-    assert "last_offline_at" not in controller
+    controllers = json.loads(status_file.read_text(encoding="utf-8"))["controllers"]
+    assert "167227924461412" not in controllers
+
+
+def test_status_job_tracks_only_enabled_airtable_controllers(tmp_path: Path) -> None:
+    controller_file = tmp_path / "airtable_config_data.json"
+    controller_file.write_text(json.dumps({"records": [
+        {"id": "rec-1", "fields": {"Name": "Enabled", "nameLink": "111", "enabled": True}},
+        {"id": "rec-2", "fields": {"Name": "Disabled", "nameLink": "222", "enabled": False}},
+    ]}), encoding="utf-8")
+    settings = RuntimeSettings(
+        schedule_file=tmp_path / "schedules.json",
+        controller_file=controller_file,
+        access_users_file=tmp_path / "users.json",
+        clients_sysinfo_dir=tmp_path / "sysinfo",
+        openweather_current_file=tmp_path / "weather.json",
+        openweather_forecast_file=tmp_path / "forecast.json",
+        tempest_data_dir=tmp_path / "tempest",
+        device_serial_file=tmp_path / "serial.txt",
+        controller_status_file=tmp_path / "controller_status.json",
+    )
+    store = ControllerStatusStore(settings.controller_status_file)
+    store.record_online_status(ControllerStatusUpdate(
+        source_serial="222",
+        response="online",
+        reason="requested",
+        seen_at=datetime(2026, 9, 19, 16, 28, 34),
+    ))
+
+    job = build_controller_status_jobs(
+        settings=settings,
+        controller_status_store=store,
+        controller_repository=FileControllerRepository(controller_file),
+    )[0]
+    job.fn()
+
+    controllers = json.loads(settings.controller_status_file.read_text(encoding="utf-8"))["controllers"]
+    assert set(controllers) == {"111"}
+    assert controllers["111"]["online"] is False
 
 
 def test_status_refresh_reports_enabled_controller_that_never_replied(tmp_path: Path) -> None:

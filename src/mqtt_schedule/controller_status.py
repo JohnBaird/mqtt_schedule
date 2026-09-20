@@ -75,8 +75,13 @@ class ControllerStatusStore:
         payload = self._load()
         controllers = payload.setdefault("controllers", {})
         changed_serials: list[str] = []
+        removed_serials: list[str] = []
         dirty = False
         if enabled_serials is not None:
+            removed_serials = [source_serial for source_serial in controllers if source_serial not in enabled_serials]
+            for source_serial in removed_serials:
+                del controllers[source_serial]
+            dirty = bool(removed_serials)
             for source_serial in enabled_serials:
                 if source_serial not in controllers:
                     controllers[source_serial] = {
@@ -86,12 +91,6 @@ class ControllerStatusStore:
                     dirty = True
 
         for source_serial, controller in controllers.items():
-            if enabled_serials is not None and source_serial not in enabled_serials:
-                if isinstance(controller, dict) and "monitoring_started_at" in controller:
-                    controller.pop("monitoring_started_at")
-                    controller.pop("offline_reported", None)
-                    dirty = True
-                continue
             if not isinstance(controller, dict):
                 continue
             last_seen_at_raw = controller.get("last_seen_at")
@@ -187,8 +186,9 @@ class ControllerStatusStore:
         payload["updated_at"] = now.isoformat()
         self._write(payload)
         self.logger.info(
-            "controller_status_refreshed changed_count=%s offline_after_seconds=%s online_recovery_after_seconds=%s controllers=%s path=%s",
+            "controller_status_refreshed changed_count=%s removed_count=%s offline_after_seconds=%s online_recovery_after_seconds=%s controllers=%s path=%s",
             len(changed_serials),
+            len(removed_serials),
             offline_after_seconds,
             online_recovery_after_seconds,
             ",".join(sorted(changed_serials)),

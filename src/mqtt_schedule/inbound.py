@@ -91,6 +91,14 @@ class AccessRequestMessageHandler:
             ]
         )
 
+    def _source_controller_enabled(self, source_serial: str) -> bool:
+        if self.controller_repository is None:
+            return True
+        return any(
+            controller.enabled and controller.name_link == source_serial
+            for controller in self.controller_repository.list_controllers()
+        )
+
     def _handle_online_status_request(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
         self.logger.info("online_status_request_message_received topic=%s", message.topic)
         if parsed_topic.destination_serial != self.source_serial:
@@ -99,6 +107,9 @@ class AccessRequestMessageHandler:
                 self.source_serial,
                 parsed_topic.destination_serial,
             )
+            return
+        if not self._source_controller_enabled(parsed_topic.source_serial):
+            self.logger.info("online_status_request_ignored reason=controller_disabled source_serial=%s", parsed_topic.source_serial)
             return
 
         self.maintenance_publisher.publish_online_status_response(
@@ -145,10 +156,7 @@ class AccessRequestMessageHandler:
             )
             return
 
-        if self.controller_repository is not None and parsed_topic.source_serial not in {
-            controller.name_link for controller in self.controller_repository.list_controllers()
-            if controller.enabled and controller.name_link
-        }:
+        if not self._source_controller_enabled(parsed_topic.source_serial):
             self.logger.info("online_status_response_ignored reason=controller_disabled source_serial=%s", parsed_topic.source_serial)
             return
 
