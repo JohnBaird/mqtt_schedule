@@ -31,6 +31,7 @@ This repository currently contains:
 - A typed domain model for schedule evaluation.
 - A pure scheduler engine that can be tested without MQTT, Airtable, or MongoDB.
 - A Linux-oriented service runner with minute-boundary scheduling and periodic jobs.
+- Optional Twilio SMS on service startup, with one global enable switch and background sending.
 - Legacy-compatible MQTT publish support for:
   - `stc_airtable_output_onoff_request`
   - `stc_online_status_request`
@@ -139,6 +140,78 @@ Planned placement for connection information:
 
 This split is intentional so we do not keep secrets in the main checked-in config file.
 The MQTT topic source serial is derived from machine identity and persisted as runtime state, not edited as normal config.
+
+### Twilio Credential Placement
+
+Twilio SMS sending is optional and disabled by default. The application reads the following variables only from the environment; putting Twilio credentials or phone numbers in `runtime.json` does not configure SMS.
+
+Keep the Account SID, Auth Token, sender number, and recipient numbers together in `/etc/mqtt_schedule/mqtt_schedule.env` on the Linux server. This file is outside the Git checkout at `/opt/mqtt_schedule`. Phone numbers are kept there for privacy even though they are not authentication secrets. Edit it with `sudo nano /etc/mqtt_schedule/mqtt_schedule.env` and add these variable names with private values:
+
+```bash
+MQTT_SCHEDULE_TWILIO_ACCOUNT_SID=
+MQTT_SCHEDULE_TWILIO_AUTH_TOKEN=
+MQTT_SCHEDULE_TWILIO_FROM_NUMBER=
+MQTT_SCHEDULE_TWILIO_TO_NUMBERS=
+```
+
+Use numbers with a leading `+` and country code; `TO_NUMBERS` accepts comma-separated recipients, and duplicate numbers are sent only one copy of each notification. The old empty `ACCOUNT_NO` field is unnecessary. `FROM_NUMBER` replaces the misspelled `SOUNCE_PHONE` name.
+
+Preserve the existing environment file and protect it using the same permissions as the other service credentials:
+
+```bash
+sudo chown root:mqttschedule /etc/mqtt_schedule/mqtt_schedule.env
+sudo chmod 640 /etc/mqtt_schedule/mqtt_schedule.env
+```
+
+The systemd unit loads this file through `EnvironmentFile`. Loading the credentials alone does not enable SMS; the switches below control sending. Account credentials and personal phone numbers stay in the environment file.
+
+Only the empty example belongs in Git. `.gitignore` excludes `*.env`, `.env`, and `.env.*`, with `.env.example` allowed as a template. Ignore rules do not remove files already tracked by Git. Never put real credentials into examples, the README, or `runtime.json`; replace any token exposed in chat, logs, or a repository before deployment.
+
+### Startup SMS Control
+
+Keep these operational switches in `/etc/mqtt_schedule/runtime.json`:
+
+```json
+"sms_enabled": false,
+"sms_service_start_enabled": true
+```
+
+`sms_enabled` is the master switch for every SMS notification. With `false`, no SMS is sent even when credentials and event switches are present. Set it to `true` for the first service restart test. `sms_service_start_enabled` controls the startup event separately, so it can later be disabled while other SMS event types remain enabled. These are JSON booleans, not quoted strings, and are controlled only by `runtime.json`; environment variables do not override these two switches. Running without `--config` leaves SMS disabled.
+
+With both switches `true`, each `--service` process sends one startup notification to each unique configured recipient after application setup reaches the `service_start` log. This includes a first start, a manual restart, a reboot start, or a systemd restart after a process failure. The message includes the hostname, server serial, and server-local timestamp. A single scheduler tick or manual refresh/sync does not send a startup SMS. `--dry-run`, including `--dry-run --service`, suppresses all SMS.
+
+SMS requests run on a separate worker, with connection and response timeouts. Missing or invalid Twilio configuration disables SMS with a warning while scheduling continues. Sending errors are logged without credentials, phone numbers, or message text. For this first implementation, there is no persistent outbox, delivery-status polling, or automatic retry; an interrupted or failed notification is not replayed at the next startup. Each new service process produces its own startup event. Future controller offline/recovery alerts and email sending are not wired in yet.
+
+After the updated Python code has been pulled and installed into `/opt/mqtt_schedule/.venv`, edit only the two switches in the live `runtime.json`; keep its other values. Validate the JSON and restart once to apply the settings:
+
+```bash
+sudo python3 -m json.tool /etc/mqtt_schedule/runtime.json >/dev/null
+sudo systemctl restart mqtt_schedule
+```
+
+If validation fails, correct the JSON before restarting. Allow startup to finish, then check:
+
+```bash
+sudo journalctl -u mqtt_schedule --since "5 minutes ago" -o cat --no-pager |
+  grep -E 'service_start|sms_'
+```
+
+Look for `sms_notifications_configured`, `sms_notification_queued`, and `sms_notification_submitted`. Submission logs include the Twilio message SID and returned status. A status such as `queued` confirms API acceptance, not handset delivery; check the SID in Twilio's messaging logs for the delivery result. `sms_notification_failed` includes a safe error reason, HTTP status, and provider error code when available. See the [Twilio Messages API](https://www.twilio.com/docs/messaging/api/message-resource) for submission and delivery statuses.
+
+Set `sms_enabled` back to `false` and restart to disable all SMS. Config-only changes need a restart but no package reinstall; Python code changes require installation before restart. The existing `requests` dependency is used, so no additional SMS package is required.
+
+### Future Email Settings
+
+The following names are reserved for a future email adapter. Keep their real values in the same protected `/etc/mqtt_schedule/mqtt_schedule.env` file, including sender and recipient addresses for privacy:
+
+```bash
+MQTT_SCHEDULE_SENDER_EMAIL_ADDRESS=
+MQTT_SCHEDULE_EMAIL_PASSWORD=
+MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_1=
+MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_2=
+```
+
+Email sending is not implemented, and the application does not consume these variables yet. Use the file ownership and permissions documented above. Keep only blank placeholders in Git, and keep future email enable switches and alert rules in `runtime.json`. Replace any password exposed in chat before deployment; if it is a Gmail app password, revoke it and generate a replacement.
 
 ## Database Purpose
 
@@ -567,6 +640,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
 
+- `0ab9bed` Track status only for enabled controllers
 - `a7fe1e0` Disable automatic Airtable calls at zero interval
 - `7a0af15` Refresh README update history
 - `c6979d7` Split Airtable startup sync by export
@@ -586,7 +660,6 @@ Recent history from git (through the commit before this README edit; run the com
 - `81e150c` Log access requests to transactions CSV
 - `20e5913` Track controller online status in state file
 - `239dd50` Add explicit access decision diagnostics
-- `53a14d6` Add Airtable sync with startup fetch safeguard
 
 To see the latest 20 commits at any time:
 

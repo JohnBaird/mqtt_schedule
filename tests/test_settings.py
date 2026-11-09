@@ -34,6 +34,8 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.airtable_controller_sync_run_immediately is False
     assert settings.airtable_schedule_sync_run_immediately is False
     assert settings.airtable_access_users_sync_run_immediately is False
+    assert settings.sms_enabled is False
+    assert settings.sms_service_start_enabled is True
     assert settings.mongo_db == "homeWeather"
     assert settings.mongo_col_stations == "stations"
     assert settings.mongo_col_open_weather == "open_weather"
@@ -171,3 +173,71 @@ def test_runtime_settings_reads_controller_offline_timeout_from_env(monkeypatch)
 
     assert settings.controller_offline_after_seconds == 420
     assert settings.controller_online_recovery_after_seconds == 240
+
+
+def test_sms_switches_are_controlled_by_runtime_json(tmp_path: Path, monkeypatch) -> None:
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    config["sms_enabled"] = True
+    config["sms_service_start_enabled"] = False
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setenv("MQTT_SCHEDULE_SMS_ENABLED", "false")
+    monkeypatch.setenv("MQTT_SCHEDULE_SMS_SERVICE_START_ENABLED", "true")
+
+    settings = RuntimeSettings.from_json_file(path)
+
+    assert settings.sms_enabled is True
+    assert settings.sms_service_start_enabled is False
+    config["sms_enabled"] = False
+    path.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setenv("MQTT_SCHEDULE_SMS_ENABLED", "true")
+    assert RuntimeSettings.from_json_file(path).sms_enabled is False
+
+
+@pytest.mark.parametrize("name", ["sms_enabled", "sms_service_start_enabled"])
+@pytest.mark.parametrize("value", ["false", 0, None])
+def test_sms_switches_require_json_booleans(tmp_path: Path, name, value) -> None:
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    config[name] = value
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match=f"{name} must be a JSON boolean"):
+        RuntimeSettings.from_json_file(path)
+
+
+def test_twilio_values_are_environment_only_and_hidden_from_repr(tmp_path: Path, monkeypatch) -> None:
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    config.update({
+        "twilio_account_sid": "ignored-json-account",
+        "twilio_auth_token": "ignored-json-token",
+        "twilio_from_number": "+15550009999",
+        "twilio_to_numbers": ["+15550008888"],
+    })
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    variables = {
+        "MQTT_SCHEDULE_TWILIO_ACCOUNT_SID": "AC" + "0" * 32,
+        "MQTT_SCHEDULE_TWILIO_AUTH_TOKEN": "test-only-private-token",
+        "MQTT_SCHEDULE_TWILIO_FROM_NUMBER": "+15550001111",
+        "MQTT_SCHEDULE_TWILIO_TO_NUMBERS": "+15550002222, +15550003333",
+    }
+    for name in variables:
+        monkeypatch.delenv(name, raising=False)
+    settings = RuntimeSettings.from_json_file(path)
+    assert settings.twilio_account_sid is None
+    assert settings.twilio_auth_token is None
+    assert settings.twilio_from_number is None
+    assert settings.twilio_to_numbers == ()
+
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+    settings = RuntimeSettings.from_json_file(path)
+    assert settings.twilio_account_sid == variables["MQTT_SCHEDULE_TWILIO_ACCOUNT_SID"]
+    assert settings.twilio_auth_token == variables["MQTT_SCHEDULE_TWILIO_AUTH_TOKEN"]
+    assert settings.twilio_from_number == "+15550001111"
+    assert settings.twilio_to_numbers == ("+15550002222", "+15550003333")
+    assert "test-only-private-token" not in repr(settings)
+    assert "+15550001111" not in repr(settings)
+    assert "+15550002222" not in repr(settings)
+    assert RuntimeSettings.from_env().twilio_auth_token == "test-only-private-token"
+    assert RuntimeSettings.from_env().sms_enabled is False

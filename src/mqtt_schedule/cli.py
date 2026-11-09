@@ -35,6 +35,8 @@ from .settings import RuntimeSettings
 from .weather_adapters import OpenWeatherFileSunTimesProvider, TempestFileRainPolicy
 from .weather_refresh import OpenWeatherRefreshSettings, OpenWeatherRefresher, TempestRefreshSettings, TempestRefresher
 from .domain import AccessRequest
+from .notifications import SmsNotifications
+from .twilio_adapter import TwilioSmsSender, TwilioSmsSettings, validate_phone_number
 
 
 def main() -> int:
@@ -200,6 +202,7 @@ def main() -> int:
         evaluator=evaluator,
     )
 
+    sms_notifications: SmsNotifications | None = None
     try:
         refresh_jobs = build_weather_refresh_jobs(
             settings=settings,
@@ -238,6 +241,12 @@ def main() -> int:
                 now.isoformat(),
                 seconds_until_next_minute(now),
             )
+            sms_notifications = build_sms_notifications(settings, dry_run=args.dry_run)
+            sms_notifications.notify_service_started(
+                host_name=host_identity.host_name,
+                source_serial=source_serial,
+                started_at=datetime.now(),
+            )
             return runner.run_forever()
 
         if args.refresh_weather_now:
@@ -249,8 +258,55 @@ def main() -> int:
         print(f"evaluated_at={snapshot.evaluated_at.isoformat()} command_count={snapshot.command_count}")
         return 0
     finally:
+        if sms_notifications is not None:
+            sms_notifications.close()
         if client is not None:
             PahoClientFactory.close(client)
+
+
+def build_sms_notifications(settings: RuntimeSettings, *, dry_run: bool = False) -> SmsNotifications:
+    logger = logging.getLogger("mqtt_schedule.notifications")
+    disabled = SmsNotifications(enabled=False, service_start_enabled=settings.sms_service_start_enabled)
+    if dry_run:
+        logger.info("sms_notifications_disabled reason=dry_run")
+        return disabled
+    if not settings.sms_enabled:
+        logger.info("sms_notifications_disabled reason=global_switch")
+        return disabled
+    required = {
+        "MQTT_SCHEDULE_TWILIO_ACCOUNT_SID": settings.twilio_account_sid,
+        "MQTT_SCHEDULE_TWILIO_AUTH_TOKEN": settings.twilio_auth_token,
+        "MQTT_SCHEDULE_TWILIO_FROM_NUMBER": settings.twilio_from_number,
+        "MQTT_SCHEDULE_TWILIO_TO_NUMBERS": settings.twilio_to_numbers,
+    }
+    missing = [name for name, value in required.items() if not value or (isinstance(value, str) and not value.strip())]
+    if missing:
+        logger.warning("sms_notifications_disabled reason=missing_configuration fields=%s", ",".join(missing))
+        return disabled
+    try:
+        recipients = tuple(dict.fromkeys(number.strip() for number in settings.twilio_to_numbers))
+        for number in recipients:
+            validate_phone_number(number)
+        sender = TwilioSmsSender(TwilioSmsSettings(
+            account_sid=settings.twilio_account_sid.strip(),
+            auth_token=settings.twilio_auth_token.strip(),
+            from_number=settings.twilio_from_number.strip(),
+        ))
+    except ValueError:
+        logger.warning("sms_notifications_disabled reason=invalid_configuration")
+        return disabled
+    logger.info(
+        "sms_notifications_configured service_start_enabled=%s recipient_count=%s",
+        settings.sms_service_start_enabled,
+        len(recipients),
+    )
+    return SmsNotifications(
+        enabled=True,
+        service_start_enabled=settings.sms_service_start_enabled,
+        sender=sender,
+        recipients=recipients,
+    )
+
 
 def _build_openweather_refresher(settings: RuntimeSettings) -> OpenWeatherRefresher | None:
     if not settings.openweather_api_key or settings.openweather_lat is None or settings.openweather_lon is None:

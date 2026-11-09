@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -27,6 +27,12 @@ class RuntimeSettings:
     airtable_backup_dir: Path = Path("/var/lib/mqtt_schedule/airtable_backup")
     commissioning_only_destinations: tuple[str, ...] = ()
     source_serial_override: str | None = None
+    sms_enabled: bool = False
+    sms_service_start_enabled: bool = True
+    twilio_account_sid: str | None = field(default=None, repr=False)
+    twilio_auth_token: str | None = field(default=None, repr=False)
+    twilio_from_number: str | None = field(default=None, repr=False)
+    twilio_to_numbers: tuple[str, ...] = field(default=(), repr=False)
     tempest_station_id: int = 201749
     openweather_url: str = "https://api.openweathermap.org/data/2.5"
     openweather_api_key: str | None = None
@@ -198,6 +204,10 @@ class RuntimeSettings:
             ),
             commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS"),
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE"),
+            twilio_account_sid=os.environ.get("MQTT_SCHEDULE_TWILIO_ACCOUNT_SID"),
+            twilio_auth_token=os.environ.get("MQTT_SCHEDULE_TWILIO_AUTH_TOKEN"),
+            twilio_from_number=os.environ.get("MQTT_SCHEDULE_TWILIO_FROM_NUMBER"),
+            twilio_to_numbers=_env_csv("MQTT_SCHEDULE_TWILIO_TO_NUMBERS"),
             tempest_station_id=int(os.environ.get("MQTT_SCHEDULE_TEMPEST_STATION_ID", "201749")),
             openweather_url=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_URL", "https://api.openweathermap.org/data/2.5"),
             openweather_api_key=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_API_KEY"),
@@ -312,6 +322,8 @@ class RuntimeSettings:
             ),
             commissioning_only_destinations=(),
             source_serial_override=data.get("source_serial_override"),
+            sms_enabled=_json_bool(data, "sms_enabled", False),
+            sms_service_start_enabled=_json_bool(data, "sms_service_start_enabled", True),
             tempest_station_id=int(data.get("tempest_station_id", 201749)),
             openweather_url=data.get("openweather_url", "https://api.openweathermap.org/data/2.5"),
             openweather_api_key=data.get("openweather_api_key"),
@@ -413,6 +425,16 @@ class RuntimeSettings:
             ),
             commissioning_only_destinations=_env_csv("MQTT_SCHEDULE_ONLY_DESTINATIONS") or self.commissioning_only_destinations,
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE", self.source_serial_override),
+            sms_enabled=self.sms_enabled,
+            sms_service_start_enabled=self.sms_service_start_enabled,
+            twilio_account_sid=os.environ.get("MQTT_SCHEDULE_TWILIO_ACCOUNT_SID", self.twilio_account_sid),
+            twilio_auth_token=os.environ.get("MQTT_SCHEDULE_TWILIO_AUTH_TOKEN", self.twilio_auth_token),
+            twilio_from_number=os.environ.get("MQTT_SCHEDULE_TWILIO_FROM_NUMBER", self.twilio_from_number),
+            twilio_to_numbers=(
+                _env_csv("MQTT_SCHEDULE_TWILIO_TO_NUMBERS")
+                if "MQTT_SCHEDULE_TWILIO_TO_NUMBERS" in os.environ
+                else self.twilio_to_numbers
+            ),
             tempest_station_id=_env_int("MQTT_SCHEDULE_TEMPEST_STATION_ID", self.tempest_station_id),
             openweather_url=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_URL", self.openweather_url),
             openweather_api_key=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_API_KEY", self.openweather_api_key),
