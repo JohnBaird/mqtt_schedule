@@ -123,6 +123,7 @@ Configuration layout:
   - [runtime.example.json](E:\Development\mqtt_schedule\deploy\runtime.example.json:1)
   - [mqtt_schedule.env.example](E:\Development\mqtt_schedule\deploy\mqtt_schedule.env.example:1)
 - The Airtable export file contract is documented in [airtable-file-contract.md](E:\Development\mqtt_schedule\docs\airtable-file-contract.md:1).
+- The per-controller/input/edge notification table, first-download instructions, and server contract are documented in [input-alerts-plan.md](docs/input-alerts-plan.md), including confirmed edge clearing after broker acknowledgment for controller `44864172347607`. Download/validation is implemented; input-edge alert delivery is not wired in yet.
 
 Planned placement for connection information:
 
@@ -288,6 +289,8 @@ Important Linux runtime locations:
   Local schedule export from Airtable.
 - `/etc/mqtt_schedule/airtable_access_users.json`
   Local access-user export from Airtable.
+- `/etc/mqtt_schedule/airtable_input_alerts.json`
+  Optional validated input-alert rule export; downloaded rules do not trigger notifications in this build.
 - `/var/lib/mqtt_schedule/airtable_backup/`
   Private last-known-good copies of the three Airtable exports.
 - `/etc/mqtt_schedule/ow_records_current.json`
@@ -348,6 +351,10 @@ Current inbound MQTT behavior:
 Current Airtable sync behavior:
 
 - `python -m mqtt_schedule --sync-airtable-now` fetches controller, schedule, and access-user exports from Airtable into the local JSON contract files.
+- Optional `--sync-input-alerts-now` fetches only the `input-alerts` table, validates enabled rules against the local controller cache, and saves a private backup. `--validate-input-alerts` checks the local rules without API calls. Both exit before MQTT or notification startup.
+- Input alerts follow the other Airtable exports: `records[].fields`, `Name`, and lowercase `enabled`. All four readers share checkbox/legacy-text enablement (`true` or `"true"` enables; false/missing/other values disable). A disabled input-alert example lives beside the other table examples in `deploy/examples/`.
+- Automatic input-alert sync is disabled by default; `airtable_input_alerts_sync_enabled: true` adds it to the existing refresh interval and to `--sync-airtable-now`. Its separate `airtable_input_alerts_sync_run_immediately` flag controls the startup fetch. The optional rules file never becomes required for irrigation startup, and input-edge notifications are not implemented yet.
+- Malformed pages or repeated pagination offsets fail the download rather than replacing an export with incomplete data or looping through extra API calls.
 - Existing local exports let the service start without contacting Airtable. Valid exports are copied to `airtable_backup_dir` (default `/var/lib/mqtt_schedule/airtable_backup`) as private last-known-good snapshots.
 - If a required export is missing at startup, the service tries Airtable when sync is enabled, then restores any still-missing file from a validated private snapshot. It fails clearly if neither source has the file.
 - Successful manual and periodic syncs refresh the private snapshots. Identical Airtable payloads do not overwrite the existing local files.
@@ -675,6 +682,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
 
+- `93fe51e` Add configurable Gmail  service startup email
 - `9c6ea81` Add configurable Twilio service startup SMS
 - `0ab9bed` Track status only for enabled controllers
 - `a7fe1e0` Disable automatic Airtable calls at zero interval
@@ -694,7 +702,6 @@ Recent history from git (through the commit before this README edit; run the com
 - `a4519a3` Log controller offline timeout events
 - `48e4343` Preserve access request IDs across response and CSV
 - `81e150c` Log access requests to transactions CSV
-- `20e5913` Track controller online status in state file
 
 To see the latest 20 commits at any time:
 

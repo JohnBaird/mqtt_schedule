@@ -53,6 +53,10 @@ class RuntimeSettings:
     airtable_controller_table: str = "irrigation-config"
     airtable_schedule_table: str = "irrigation-schedule"
     airtable_access_users_table: str = "access-users"
+    input_alerts_file: Path = Path("/etc/mqtt_schedule/airtable_input_alerts.json")
+    airtable_input_alerts_table: str = "input-alerts"
+    airtable_input_alerts_sync_enabled: bool = False
+    airtable_input_alerts_sync_run_immediately: bool = False
     airtable_sync_seconds: int = 24 * 60 * 60
     airtable_controller_sync_run_immediately: bool = False
     airtable_schedule_sync_run_immediately: bool = False
@@ -231,6 +235,10 @@ class RuntimeSettings:
             airtable_controller_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_CONTROLLER_TABLE", "irrigation-config"),
             airtable_schedule_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_SCHEDULE_TABLE", "irrigation-schedule"),
             airtable_access_users_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE", "access-users"),
+            input_alerts_file=Path(os.environ.get("MQTT_SCHEDULE_INPUT_ALERTS_FILE") or base_dir / "airtable_input_alerts.json"),
+            airtable_input_alerts_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_TABLE", "input-alerts"),
+            airtable_input_alerts_sync_enabled=_env_bool("MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_SYNC_ENABLED", False),
+            airtable_input_alerts_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_SYNC_RUN_IMMEDIATELY", False),
             airtable_sync_seconds=int(os.environ.get("MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS", str(24 * 60 * 60))),
             airtable_controller_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_CONTROLLER_SYNC_RUN_IMMEDIATELY", False),
             airtable_schedule_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_SCHEDULE_SYNC_RUN_IMMEDIATELY", False),
@@ -352,6 +360,10 @@ class RuntimeSettings:
             airtable_controller_table=data.get("airtable_controller_table", "irrigation-config"),
             airtable_schedule_table=data.get("airtable_schedule_table", "irrigation-schedule"),
             airtable_access_users_table=data.get("airtable_access_users_table", "access-users"),
+            input_alerts_file=Path(data.get("input_alerts_file", "/etc/mqtt_schedule/airtable_input_alerts.json")),
+            airtable_input_alerts_table=data.get("airtable_input_alerts_table", "input-alerts"),
+            airtable_input_alerts_sync_enabled=_json_bool(data, "airtable_input_alerts_sync_enabled", False),
+            airtable_input_alerts_sync_run_immediately=_json_bool(data, "airtable_input_alerts_sync_run_immediately", False),
             airtable_sync_seconds=int(data.get("airtable_sync_seconds", 24 * 60 * 60)),
             airtable_controller_sync_run_immediately=_json_bool(data, "airtable_controller_sync_run_immediately", False),
             airtable_schedule_sync_run_immediately=_json_bool(data, "airtable_schedule_sync_run_immediately", False),
@@ -485,6 +497,14 @@ class RuntimeSettings:
             airtable_access_users_table=os.environ.get(
                 "MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE",
                 self.airtable_access_users_table,
+            ),
+            input_alerts_file=_env_path("MQTT_SCHEDULE_INPUT_ALERTS_FILE", self.input_alerts_file),
+            airtable_input_alerts_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_TABLE", self.airtable_input_alerts_table),
+            airtable_input_alerts_sync_enabled=_env_bool(
+                "MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_SYNC_ENABLED", self.airtable_input_alerts_sync_enabled,
+            ),
+            airtable_input_alerts_sync_run_immediately=_env_bool(
+                "MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_SYNC_RUN_IMMEDIATELY", self.airtable_input_alerts_sync_run_immediately,
             ),
             airtable_sync_seconds=_env_int(
                 "MQTT_SCHEDULE_AIRTABLE_SYNC_SECONDS",

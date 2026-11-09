@@ -34,6 +34,10 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.airtable_controller_sync_run_immediately is False
     assert settings.airtable_schedule_sync_run_immediately is False
     assert settings.airtable_access_users_sync_run_immediately is False
+    assert settings.input_alerts_file.as_posix() == "/etc/mqtt_schedule/airtable_input_alerts.json"
+    assert settings.airtable_input_alerts_table == "input-alerts"
+    assert settings.airtable_input_alerts_sync_enabled is False
+    assert settings.airtable_input_alerts_sync_run_immediately is False
     assert settings.sms_enabled is False
     assert settings.sms_service_start_enabled is True
     assert settings.email_enabled is False
@@ -199,7 +203,8 @@ def test_sms_switches_are_controlled_by_runtime_json(tmp_path: Path, monkeypatch
     assert RuntimeSettings.from_json_file(path).sms_enabled is False
 
 
-@pytest.mark.parametrize("name", ["sms_enabled", "sms_service_start_enabled", "email_enabled", "email_service_start_enabled"])
+@pytest.mark.parametrize("name", ["sms_enabled", "sms_service_start_enabled", "email_enabled", "email_service_start_enabled",
+                                 "airtable_input_alerts_sync_enabled", "airtable_input_alerts_sync_run_immediately"])
 @pytest.mark.parametrize("value", ["false", 0, None])
 def test_sms_switches_require_json_booleans(tmp_path: Path, name, value) -> None:
     config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())

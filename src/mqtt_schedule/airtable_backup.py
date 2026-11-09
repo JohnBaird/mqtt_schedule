@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from functools import partial
 from pathlib import Path
 
 from .airtable_repositories import (
@@ -10,6 +11,7 @@ from .airtable_repositories import (
     validate_schedule_file,
 )
 from .settings import RuntimeSettings
+from .input_alerts import validate_input_alerts_file
 
 
 _LOGGER = logging.getLogger("mqtt_schedule.airtable_backup")
@@ -20,6 +22,8 @@ def _live_files(settings: RuntimeSettings):
         ("schedule", settings.schedule_file, "airtable_schedule_data.json", validate_schedule_file),
         ("controller", settings.controller_file, "airtable_config_data.json", validate_controller_file),
         ("access_users", settings.access_users_file, "airtable_access_users.json", validate_access_users_file),
+        ("input_alerts", settings.input_alerts_file, "airtable_input_alerts.json",
+         partial(validate_input_alerts_file, controller_file=settings.controller_file)),
     )
 
 

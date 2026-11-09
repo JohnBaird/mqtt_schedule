@@ -7,6 +7,7 @@ from typing import Any
 
 from .app import ControllerRepository, ScheduleRepository
 from .domain import ControllerTarget, ScheduleEntry
+from .airtable_values import enabled_value
 
 
 @dataclass(frozen=True)
@@ -272,11 +273,7 @@ def _records_from_raw(
 
 
 def _bool_value(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() == "true"
-    return False
+    return enabled_value(value)
 
 
 def _string_list(value: Any) -> list[str]:

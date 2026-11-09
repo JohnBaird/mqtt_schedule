@@ -9,6 +9,7 @@ from typing import Any
 import requests
 
 from .settings import RuntimeSettings
+from .input_alerts import validate_input_alerts_payload
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ class AirtableSyncService:
     def sync_targets(self, file_kinds: set[str]) -> list[AirtableSyncFileResult]:
         if not self.is_configured():
             raise RuntimeError("Airtable sync is not configured.")
-        targets = self.targets()
+        targets = self._all_targets()
         unknown = file_kinds - {target.file_kind for target in targets}
         if unknown:
             raise ValueError(f"Unknown Airtable file kinds: {', '.join(sorted(unknown))}")
@@ -61,6 +62,12 @@ class AirtableSyncService:
             if target.file_kind not in file_kinds:
                 continue
             payload = self._fetch_table_payload(target.table_name)
+            if target.file_kind == "input_alerts":
+                summary = validate_input_alerts_payload(
+                    payload, controller_file=self.settings.controller_file, path=target.output_path,
+                )
+                if not summary.ok:
+                    raise ValueError("Invalid input-alerts export: " + " ".join(issue.message for issue in summary.issues))
             record_count = len(payload.get("records", []))
             action = _write_json_if_changed(target.output_path, payload)
             self.logger.info(
@@ -83,6 +90,10 @@ class AirtableSyncService:
         return results
 
     def targets(self) -> list[AirtableSyncTarget]:
+        return [target for target in self._all_targets()
+                if target.file_kind != "input_alerts" or self.settings.airtable_input_alerts_sync_enabled]
+
+    def _all_targets(self) -> list[AirtableSyncTarget]:
         return [
             AirtableSyncTarget(
                 file_kind="controller",
@@ -99,10 +110,16 @@ class AirtableSyncService:
                 table_name=self.settings.airtable_access_users_table,
                 output_path=self.settings.access_users_file,
             ),
+            AirtableSyncTarget(
+                file_kind="input_alerts",
+                table_name=self.settings.airtable_input_alerts_table,
+                output_path=self.settings.input_alerts_file,
+            ),
         ]
 
     def required_files_missing(self) -> list[Path]:
-        return [target.output_path for target in self.targets() if not target.output_path.exists()]
+        return [target.output_path for target in self.targets()
+                if target.file_kind != "input_alerts" and not target.output_path.exists()]
 
     def _fetch_table_payload(self, table_name: str) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {self.settings.airtable_api_key}"}
@@ -110,6 +127,7 @@ class AirtableSyncService:
         url = f"{base_url}/{self.settings.airtable_base_id}/{table_name}"
         records: list[dict[str, Any]] = []
         offset: str | None = None
+        seen_offsets: set[str] = set()
 
         while True:
             params: dict[str, str] = {}
@@ -118,12 +136,18 @@ class AirtableSyncService:
             response = self.session.get(url, headers=headers, params=params, timeout=30)
             response.raise_for_status()
             payload = response.json()
-            page_records = payload.get("records", [])
-            if isinstance(page_records, list):
-                records.extend(item for item in page_records if isinstance(item, dict))
-            offset = payload.get("offset") if isinstance(payload.get("offset"), str) else None
-            if not offset:
+            if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):
+                raise ValueError("Airtable response must contain a records array; existing export was not replaced.")
+            page_records = payload["records"]
+            if any(not isinstance(item, dict) for item in page_records):
+                raise ValueError("Airtable returned an invalid record; existing export was not replaced.")
+            records.extend(page_records)
+            offset = payload.get("offset")
+            if offset is None:
                 break
+            if not isinstance(offset, str) or not offset or offset in seen_offsets:
+                raise ValueError("Airtable returned an invalid or repeated pagination offset; export was not replaced.")
+            seen_offsets.add(offset)
 
         return {"records": records}
 

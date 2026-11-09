@@ -1,0 +1,17 @@
+{
+  "records": [
+    {
+      "id": "recExampleInputAlert",
+      "fields": {
+        "Name": "Example input 0 negative",
+        "enabled": false,
+        "controller": ["recExampleController"],
+        "inputCategory": "Digital GPIO",
+        "inputIndex": 0,
+        "edge": "negative",
+        "channels": ["sms", "email"],
+        "message": "Example input 0 negative edge"
+      }
+    }
+  ]
+}

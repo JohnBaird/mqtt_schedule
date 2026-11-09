@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .domain import AccessDecision, AccessRequest
+from .airtable_values import enabled_value
 
 
 @dataclass(frozen=True)
@@ -131,11 +132,7 @@ class AccessDecisionService:
 
 
 def _bool_value(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() == "true"
-    return False
+    return enabled_value(value)
 
 
 def _string_list(value: Any) -> list[str]:

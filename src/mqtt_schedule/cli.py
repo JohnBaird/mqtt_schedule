@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 import logging
 from pathlib import Path
+import requests
 
 from .airtable_repositories import (
     FileControllerRepository,
@@ -17,6 +18,7 @@ from .access_control import AccessDecisionService, FileAccessUserRepository
 from .app import ControllerRepository, FilteredControllerRepository, SchedulerApplication
 from .airtable_sync import AirtableSyncService
 from .airtable_backup import restore_missing_airtable_files, save_airtable_backups
+from .input_alerts import validate_input_alerts_file
 from .controller_status import ControllerStatusStore
 from .csv_reporting import LegacyCsvRecorder
 from .hostinfo import HostInfoProvider
@@ -60,6 +62,14 @@ def main() -> int:
         action="store_true",
         help="Fetch Airtable exports now and update local contract files before exiting.",
     )
+    parser.add_argument(
+        "--sync-input-alerts-now", action="store_true",
+        help="Download and validate only the input-alerts table, then exit without MQTT or notifications.",
+    )
+    parser.add_argument(
+        "--validate-input-alerts", action="store_true",
+        help="Validate the local input-alerts export and controller links without making API calls.",
+    )
     parser.add_argument("--handle-access-request-topic", help="Process one legacy stc_access_request topic and exit.")
     parser.add_argument("--handle-access-request-payload", help="Process one legacy stc_access_request payload JSON and exit.")
     parser.add_argument(
@@ -76,10 +86,16 @@ def main() -> int:
     parser.add_argument("--service", action="store_true", help="Run as a long-lived Linux-style service.")
     parser.add_argument("--run-immediately", action="store_true", help="When used with --service, execute one tick before waiting for the next minute boundary.")
     args = parser.parse_args()
+    if sum((args.sync_airtable_now, args.sync_input_alerts_now, args.validate_input_alerts)) > 1:
+        parser.error("Choose only one of --sync-airtable-now, --sync-input-alerts-now, or --validate-input-alerts")
 
     settings = RuntimeSettings.from_json_file(args.config) if args.config else RuntimeSettings.from_env()
     if args.sync_airtable_now:
         return _sync_airtable_now(settings)
+    if args.sync_input_alerts_now:
+        return _sync_input_alerts_now(settings)
+    if args.validate_input_alerts:
+        return _validate_input_alerts(settings)
     _ensure_required_airtable_files(settings)
     now = datetime.fromisoformat(args.now) if args.now else datetime.now()
     source_serial = DeviceIdentity(
@@ -460,11 +476,14 @@ def build_airtable_sync_jobs(
         return run
 
     jobs: list[PeriodicJob] = []
-    for file_kind, run_immediately in (
+    targets = [
         ("controller", settings.airtable_controller_sync_run_immediately),
         ("schedule", settings.airtable_schedule_sync_run_immediately),
         ("access_users", settings.airtable_access_users_sync_run_immediately),
-    ):
+    ]
+    if settings.airtable_input_alerts_sync_enabled:
+        targets.append(("input_alerts", settings.airtable_input_alerts_sync_run_immediately))
+    for file_kind, run_immediately in targets:
         logger.info(
             "airtable_sync_configured file_kind=%s interval_seconds=%s run_immediately=%s",
             file_kind,
@@ -620,6 +639,36 @@ def _sync_airtable_now(settings: RuntimeSettings) -> int:
             f"action={result.action}"
         )
     return 0
+
+
+def _sync_input_alerts_now(settings: RuntimeSettings) -> int:
+    logger = logging.getLogger("mqtt_schedule.cli")
+    try:
+        result = AirtableSyncService(settings).sync_targets({"input_alerts"})[0]
+        save_airtable_backups(settings)
+    except requests.RequestException as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        logger.error("input_alerts_download_failed reason=api_error http_status=%s", status)
+        return 1
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.error("input_alerts_download_failed reason=validation_or_file_error detail=%s", exc)
+        return 1
+    print(
+        f"airtable_sync kind=input_alerts table={result.table_name} path={result.output_path} "
+        f"record_count={result.record_count} action={result.action}"
+    )
+    return _validate_input_alerts(settings)
+
+
+def _validate_input_alerts(settings: RuntimeSettings) -> int:
+    summary = validate_input_alerts_file(settings.input_alerts_file, controller_file=settings.controller_file)
+    print(
+        f"input_alerts_validation path={summary.path} record_count={summary.record_count} "
+        f"enabled_rules={summary.valid_count} ok={str(summary.ok).lower()}"
+    )
+    for issue in summary.issues:
+        print(f"input_alerts_validation severity={issue.severity} detail={issue.message}")
+    return 0 if summary.ok else 1
 
 
 def _handle_access_request(

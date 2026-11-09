@@ -7,6 +7,7 @@ This means the scheduler runtime does not treat Airtable as its day-to-day sourc
 - `/etc/mqtt_schedule/airtable_schedule_data.json`
 - `/etc/mqtt_schedule/airtable_config_data.json`
 - `/etc/mqtt_schedule/airtable_access_users.json`
+- `/etc/mqtt_schedule/airtable_input_alerts.json` (optional; see the [input-alerts plan and contract](input-alerts-plan.md))
 
 The scheduler service consumes those files as its source of truth. At startup it saves validated copies under `/var/lib/mqtt_schedule/airtable_backup/` (or `airtable_backup_dir` from `runtime.json`). If a live export is missing, startup restores it from the private backup when Airtable sync is disabled or a fetch fails. A successful sync refreshes the backup. The backup includes access-user credentials and stays on the server with private permissions.
 
@@ -24,6 +25,8 @@ This keeps the scheduler service focused on:
 It also lets us replace the legacy system incrementally instead of mixing Airtable API concerns into the already-working runtime path.
 
 ### Current Sync Behavior
+
+The optional fourth export is fetched explicitly with `--sync-input-alerts-now`, or periodically when `airtable_input_alerts_sync_enabled` is true. Its manual command validates before replacing the file and exits before any MQTT/SMS/email setup. `--validate-input-alerts` validates the local export only. The three original files remain the required startup exports; adding optional alert rules does not enable input-edge notifications.
 
 The rewrite now includes a separate Airtable sync path:
 
@@ -45,7 +48,7 @@ The rewrite now includes a separate Airtable sync path:
 
 ### Required Top-Level Shape
 
-Both files must be JSON objects with a top-level `records` array:
+Each export must be a JSON object with a top-level `records` array:
 
 ```json
 {
@@ -63,6 +66,8 @@ Each record should contain:
 
 - `id`: Airtable record id string
 - `fields`: object containing the Airtable field values used by the scheduler
+
+All four table readers use the existing lowercase `enabled` convention: boolean `true` or legacy text `"true"` enables a row; false, missing, or other values disable it. Text comparison is case-insensitive and ignores surrounding whitespace. New tables should use checkboxes. An input-alert reference export is included as `deploy/examples/airtable_input_alerts.example.json`, disabled like the other synthetic examples.
 
 ### Schedule Export Contract
 
