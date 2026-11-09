@@ -33,6 +33,14 @@ class RuntimeSettings:
     twilio_auth_token: str | None = field(default=None, repr=False)
     twilio_from_number: str | None = field(default=None, repr=False)
     twilio_to_numbers: tuple[str, ...] = field(default=(), repr=False)
+    email_enabled: bool = False
+    email_service_start_enabled: bool = True
+    email_smtp_host: str = "smtp.gmail.com"
+    email_smtp_port: int = 587
+    email_smtp_timeout_seconds: float = 10
+    sender_email_address: str | None = field(default=None, repr=False)
+    email_password: str | None = field(default=None, repr=False)
+    receiver_email_addresses: tuple[str, ...] = field(default=(), repr=False)
     tempest_station_id: int = 201749
     openweather_url: str = "https://api.openweathermap.org/data/2.5"
     openweather_api_key: str | None = None
@@ -208,6 +216,9 @@ class RuntimeSettings:
             twilio_auth_token=os.environ.get("MQTT_SCHEDULE_TWILIO_AUTH_TOKEN"),
             twilio_from_number=os.environ.get("MQTT_SCHEDULE_TWILIO_FROM_NUMBER"),
             twilio_to_numbers=_env_csv("MQTT_SCHEDULE_TWILIO_TO_NUMBERS"),
+            sender_email_address=os.environ.get("MQTT_SCHEDULE_SENDER_EMAIL_ADDRESS"),
+            email_password=os.environ.get("MQTT_SCHEDULE_EMAIL_PASSWORD"),
+            receiver_email_addresses=_env_email_recipients(),
             tempest_station_id=int(os.environ.get("MQTT_SCHEDULE_TEMPEST_STATION_ID", "201749")),
             openweather_url=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_URL", "https://api.openweathermap.org/data/2.5"),
             openweather_api_key=os.environ.get("MQTT_SCHEDULE_OPENWEATHER_API_KEY"),
@@ -324,6 +335,11 @@ class RuntimeSettings:
             source_serial_override=data.get("source_serial_override"),
             sms_enabled=_json_bool(data, "sms_enabled", False),
             sms_service_start_enabled=_json_bool(data, "sms_service_start_enabled", True),
+            email_enabled=_json_bool(data, "email_enabled", False),
+            email_service_start_enabled=_json_bool(data, "email_service_start_enabled", True),
+            email_smtp_host=data.get("email_smtp_host", "smtp.gmail.com"),
+            email_smtp_port=int(data.get("email_smtp_port", 587)),
+            email_smtp_timeout_seconds=float(data.get("email_smtp_timeout_seconds", 10)),
             tempest_station_id=int(data.get("tempest_station_id", 201749)),
             openweather_url=data.get("openweather_url", "https://api.openweathermap.org/data/2.5"),
             openweather_api_key=data.get("openweather_api_key"),
@@ -427,6 +443,20 @@ class RuntimeSettings:
             source_serial_override=os.environ.get("MQTT_SCHEDULE_SOURCE_SERIAL_OVERRIDE", self.source_serial_override),
             sms_enabled=self.sms_enabled,
             sms_service_start_enabled=self.sms_service_start_enabled,
+            email_enabled=self.email_enabled,
+            email_service_start_enabled=self.email_service_start_enabled,
+            email_smtp_host=self.email_smtp_host,
+            email_smtp_port=self.email_smtp_port,
+            email_smtp_timeout_seconds=self.email_smtp_timeout_seconds,
+            sender_email_address=os.environ.get("MQTT_SCHEDULE_SENDER_EMAIL_ADDRESS", self.sender_email_address),
+            email_password=os.environ.get("MQTT_SCHEDULE_EMAIL_PASSWORD", self.email_password),
+            receiver_email_addresses=(
+                _env_email_recipients()
+                if any(name in os.environ for name in (
+                    "MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_1", "MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_2",
+                ))
+                else self.receiver_email_addresses
+            ),
             twilio_account_sid=os.environ.get("MQTT_SCHEDULE_TWILIO_ACCOUNT_SID", self.twilio_account_sid),
             twilio_auth_token=os.environ.get("MQTT_SCHEDULE_TWILIO_AUTH_TOKEN", self.twilio_auth_token),
             twilio_from_number=os.environ.get("MQTT_SCHEDULE_TWILIO_FROM_NUMBER", self.twilio_from_number),
@@ -664,3 +694,10 @@ def _env_csv(name: str) -> tuple[str, ...]:
     if raw is None or raw.strip() == "":
         return ()
     return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
+def _env_email_recipients() -> tuple[str, ...]:
+    values = (os.environ.get(name, "").strip() for name in (
+        "MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_1", "MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_2",
+    ))
+    return tuple(value for value in values if value)

@@ -35,7 +35,8 @@ from .settings import RuntimeSettings
 from .weather_adapters import OpenWeatherFileSunTimesProvider, TempestFileRainPolicy
 from .weather_refresh import OpenWeatherRefreshSettings, OpenWeatherRefresher, TempestRefreshSettings, TempestRefresher
 from .domain import AccessRequest
-from .notifications import SmsNotifications
+from .notifications import EmailNotifications, SmsNotifications
+from .email_adapter import SmtpEmailSender, SmtpEmailSettings, validate_email_address
 from .twilio_adapter import TwilioSmsSender, TwilioSmsSettings, validate_phone_number
 
 
@@ -203,6 +204,7 @@ def main() -> int:
     )
 
     sms_notifications: SmsNotifications | None = None
+    email_notifications: EmailNotifications | None = None
     try:
         refresh_jobs = build_weather_refresh_jobs(
             settings=settings,
@@ -242,10 +244,17 @@ def main() -> int:
                 seconds_until_next_minute(now),
             )
             sms_notifications = build_sms_notifications(settings, dry_run=args.dry_run)
+            email_notifications = build_email_notifications(settings, dry_run=args.dry_run)
+            notification_started_at = datetime.now()
             sms_notifications.notify_service_started(
                 host_name=host_identity.host_name,
                 source_serial=source_serial,
-                started_at=datetime.now(),
+                started_at=notification_started_at,
+            )
+            email_notifications.notify_service_started(
+                host_name=host_identity.host_name,
+                source_serial=source_serial,
+                started_at=notification_started_at,
             )
             return runner.run_forever()
 
@@ -258,6 +267,8 @@ def main() -> int:
         print(f"evaluated_at={snapshot.evaluated_at.isoformat()} command_count={snapshot.command_count}")
         return 0
     finally:
+        if email_notifications is not None:
+            email_notifications.close()
         if sms_notifications is not None:
             sms_notifications.close()
         if client is not None:
@@ -303,6 +314,51 @@ def build_sms_notifications(settings: RuntimeSettings, *, dry_run: bool = False)
     return SmsNotifications(
         enabled=True,
         service_start_enabled=settings.sms_service_start_enabled,
+        sender=sender,
+        recipients=recipients,
+    )
+
+
+def build_email_notifications(settings: RuntimeSettings, *, dry_run: bool = False) -> EmailNotifications:
+    logger = logging.getLogger("mqtt_schedule.notifications")
+    disabled = EmailNotifications(enabled=False, service_start_enabled=settings.email_service_start_enabled)
+    if dry_run:
+        logger.info("email_notifications_disabled reason=dry_run")
+        return disabled
+    if not settings.email_enabled:
+        logger.info("email_notifications_disabled reason=global_switch")
+        return disabled
+    required = {
+        "MQTT_SCHEDULE_SENDER_EMAIL_ADDRESS": settings.sender_email_address,
+        "MQTT_SCHEDULE_EMAIL_PASSWORD": settings.email_password,
+        "MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_1_or_2": settings.receiver_email_addresses,
+    }
+    missing = [name for name, value in required.items() if not value or (isinstance(value, str) and not value.strip())]
+    if missing:
+        logger.warning("email_notifications_disabled reason=missing_configuration fields=%s", ",".join(missing))
+        return disabled
+    try:
+        recipients = tuple(dict.fromkeys(address.strip() for address in settings.receiver_email_addresses))
+        for address in recipients:
+            validate_email_address(address)
+        sender = SmtpEmailSender(SmtpEmailSettings(
+            sender_address=settings.sender_email_address.strip(),
+            password=settings.email_password,
+            host=settings.email_smtp_host,
+            port=settings.email_smtp_port,
+            timeout_seconds=settings.email_smtp_timeout_seconds,
+        ))
+    except ValueError:
+        logger.warning("email_notifications_disabled reason=invalid_configuration")
+        return disabled
+    logger.info(
+        "email_notifications_configured service_start_enabled=%s recipient_count=%s",
+        settings.email_service_start_enabled,
+        len(recipients),
+    )
+    return EmailNotifications(
+        enabled=True,
+        service_start_enabled=settings.email_service_start_enabled,
         sender=sender,
         recipients=recipients,
     )

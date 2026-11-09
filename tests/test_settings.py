@@ -36,6 +36,11 @@ def test_runtime_settings_reads_example_json() -> None:
     assert settings.airtable_access_users_sync_run_immediately is False
     assert settings.sms_enabled is False
     assert settings.sms_service_start_enabled is True
+    assert settings.email_enabled is False
+    assert settings.email_service_start_enabled is True
+    assert settings.email_smtp_host == "smtp.gmail.com"
+    assert settings.email_smtp_port == 587
+    assert settings.email_smtp_timeout_seconds == 10
     assert settings.mongo_db == "homeWeather"
     assert settings.mongo_col_stations == "stations"
     assert settings.mongo_col_open_weather == "open_weather"
@@ -194,7 +199,7 @@ def test_sms_switches_are_controlled_by_runtime_json(tmp_path: Path, monkeypatch
     assert RuntimeSettings.from_json_file(path).sms_enabled is False
 
 
-@pytest.mark.parametrize("name", ["sms_enabled", "sms_service_start_enabled"])
+@pytest.mark.parametrize("name", ["sms_enabled", "sms_service_start_enabled", "email_enabled", "email_service_start_enabled"])
 @pytest.mark.parametrize("value", ["false", 0, None])
 def test_sms_switches_require_json_booleans(tmp_path: Path, name, value) -> None:
     config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
@@ -241,3 +246,57 @@ def test_twilio_values_are_environment_only_and_hidden_from_repr(tmp_path: Path,
     assert "+15550002222" not in repr(settings)
     assert RuntimeSettings.from_env().twilio_auth_token == "test-only-private-token"
     assert RuntimeSettings.from_env().sms_enabled is False
+
+
+def test_email_switches_and_smtp_settings_are_controlled_by_runtime_json(tmp_path: Path, monkeypatch) -> None:
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    config.update({"email_enabled": True, "email_service_start_enabled": False,
+                   "email_smtp_host": "smtp.example.test", "email_smtp_port": 2525,
+                   "email_smtp_timeout_seconds": 15})
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setenv("MQTT_SCHEDULE_EMAIL_ENABLED", "false")
+    monkeypatch.setenv("MQTT_SCHEDULE_EMAIL_SERVICE_START_ENABLED", "true")
+    settings = RuntimeSettings.from_json_file(path)
+    assert settings.email_enabled is True
+    assert settings.email_service_start_enabled is False
+    assert settings.email_smtp_host == "smtp.example.test"
+    assert settings.email_smtp_port == 2525
+    assert settings.email_smtp_timeout_seconds == 15
+    config["email_enabled"] = False
+    path.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setenv("MQTT_SCHEDULE_EMAIL_ENABLED", "true")
+    assert RuntimeSettings.from_json_file(path).email_enabled is False
+
+
+def test_email_credentials_are_environment_only_and_not_in_repr(tmp_path: Path, monkeypatch) -> None:
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    config.update({"sender_email_address": "ignored@example.test", "email_password": "ignored-json-password",
+                   "receiver_email_addresses": ["ignored@example.test"]})
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    variables = {
+        "MQTT_SCHEDULE_SENDER_EMAIL_ADDRESS": "sender@example.test",
+        "MQTT_SCHEDULE_EMAIL_PASSWORD": "test-private-email-password",
+        "MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_1": " first@example.test ",
+        "MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_2": "second@example.test",
+    }
+    for name in variables:
+        monkeypatch.delenv(name, raising=False)
+    settings = RuntimeSettings.from_json_file(path)
+    assert settings.sender_email_address is None
+    assert settings.email_password is None
+    assert settings.receiver_email_addresses == ()
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+    settings = RuntimeSettings.from_json_file(path)
+    assert settings.sender_email_address == "sender@example.test"
+    assert settings.email_password == "test-private-email-password"
+    assert settings.receiver_email_addresses == ("first@example.test", "second@example.test")
+    assert "test-private-email-password" not in repr(settings)
+    assert "sender@example.test" not in repr(settings)
+    assert "first@example.test" not in repr(settings)
+    assert RuntimeSettings.from_env().email_password == "test-private-email-password"
+    assert RuntimeSettings.from_env().email_enabled is False
+    monkeypatch.setenv("MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_1", "")
+    assert RuntimeSettings.from_json_file(path).receiver_email_addresses == ("second@example.test",)

@@ -32,6 +32,7 @@ This repository currently contains:
 - A pure scheduler engine that can be tested without MQTT, Airtable, or MongoDB.
 - A Linux-oriented service runner with minute-boundary scheduling and periodic jobs.
 - Optional Twilio SMS on service startup, with one global enable switch and background sending.
+- Optional SMTP email on service startup, with independent enable switches and a separate background sender.
 - Legacy-compatible MQTT publish support for:
   - `stc_airtable_output_onoff_request`
   - `stc_online_status_request`
@@ -180,7 +181,7 @@ Keep these operational switches in `/etc/mqtt_schedule/runtime.json`:
 
 With both switches `true`, each `--service` process sends one startup notification to each unique configured recipient after application setup reaches the `service_start` log. This includes a first start, a manual restart, a reboot start, or a systemd restart after a process failure. The message includes the hostname, server serial, and server-local timestamp. A single scheduler tick or manual refresh/sync does not send a startup SMS. `--dry-run`, including `--dry-run --service`, suppresses all SMS.
 
-SMS requests run on a separate worker, with connection and response timeouts. Missing or invalid Twilio configuration disables SMS with a warning while scheduling continues. Sending errors are logged without credentials, phone numbers, or message text. For this first implementation, there is no persistent outbox, delivery-status polling, or automatic retry; an interrupted or failed notification is not replayed at the next startup. Each new service process produces its own startup event. Future controller offline/recovery alerts and email sending are not wired in yet.
+SMS requests run on a separate worker, with connection and response timeouts. Missing or invalid Twilio configuration disables SMS with a warning while scheduling continues. Sending errors are logged without credentials, phone numbers, or message text. For this first implementation, there is no persistent outbox, delivery-status polling, or automatic retry; an interrupted or failed notification is not replayed at the next startup. Each new service process produces its own startup event. Controller offline/recovery and input-edge alerts are not wired into notifications yet.
 
 After the updated Python code has been pulled and installed into `/opt/mqtt_schedule/.venv`, edit only the two switches in the live `runtime.json`; keep its other values. Validate the JSON and restart once to apply the settings:
 
@@ -200,9 +201,9 @@ Look for `sms_notifications_configured`, `sms_notification_queued`, and `sms_not
 
 Set `sms_enabled` back to `false` and restart to disable all SMS. Config-only changes need a restart but no package reinstall; Python code changes require installation before restart. The existing `requests` dependency is used, so no additional SMS package is required.
 
-### Future Email Settings
+### Startup Email Control
 
-The following names are reserved for a future email adapter. Keep their real values in the same protected `/etc/mqtt_schedule/mqtt_schedule.env` file, including sender and recipient addresses for privacy:
+Keep the email account and recipients in the protected `/etc/mqtt_schedule/mqtt_schedule.env` file. The adapter consumes the existing names below; real addresses and passwords stay outside Git:
 
 ```bash
 MQTT_SCHEDULE_SENDER_EMAIL_ADDRESS=
@@ -211,7 +212,41 @@ MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_1=
 MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_2=
 ```
 
-Email sending is not implemented, and the application does not consume these variables yet. Use the file ownership and permissions documented above. Keep only blank placeholders in Git, and keep future email enable switches and alert rules in `runtime.json`. Replace any password exposed in chat before deployment; if it is a Gmail app password, revoke it and generate a replacement.
+Either receiver slot may be used, and blank slots are ignored. One separate message is submitted per unique recipient, without listing the other recipient in the email. Use the file ownership and permissions documented above. Replace any password exposed in chat before deployment. For Gmail, use an app password where available; the account must permit app-password authentication. See [Google's Gmail SMTP instructions](https://support.google.com/mail/answer/7104828) and [app password guidance](https://support.google.com/accounts/answer/185833).
+
+Keep the switches and SMTP connection settings in `/etc/mqtt_schedule/runtime.json`:
+
+```json
+"email_enabled": false,
+"email_service_start_enabled": true,
+"email_smtp_host": "smtp.gmail.com",
+"email_smtp_port": 587,
+"email_smtp_timeout_seconds": 10
+```
+
+`email_enabled` is the master switch for every email notification. Set it to `true` for the first startup test; set it to `false` to block all email sending. `email_service_start_enabled` controls startup email separately, just as `sms_service_start_enabled` controls startup SMS. Both flags require JSON booleans and are controlled only by `runtime.json`. Environment variables cannot override them, and running without `--config` leaves email disabled. Twilio's `sms_enabled` switch and credentials do not control email.
+
+With both email switches `true`, each `--service` process submits one startup email per unique recipient after reaching the `service_start` log, including starts after a reboot or systemd process restart. The subject identifies the host, and the body includes the hostname, server serial, and server-local startup timestamp. One-shot commands and `--dry-run` never send startup email. The SMS and email channels can be enabled together or independently.
+
+Email uses Python's standard-library SMTP client with certificate-verified STARTTLS before authentication. The defaults are Gmail SMTP on port 587; other servers must support STARTTLS on the configured port. There is no plaintext-authentication fallback. SMTP socket operations use the configured timeout. Email has its own background worker and shares queue/lifecycle code with SMS; an SMTP error does not stop the scheduler or the SMS worker. Missing or invalid email settings disable email with a warning. Logs omit passwords, sender/recipient addresses, subjects, and bodies.
+
+After installing the updated Python package into `/opt/mqtt_schedule/.venv`, set `email_enabled` to `true` in the live runtime file while preserving all other settings. Validate before restarting:
+
+```bash
+sudo python3 -m json.tool /etc/mqtt_schedule/runtime.json >/dev/null
+sudo systemctl restart mqtt_schedule
+```
+
+Correct any validation error before restarting. After startup finishes, inspect:
+
+```bash
+sudo journalctl -u mqtt_schedule --since "5 minutes ago" -o cat --no-pager |
+  grep -E 'service_start|email_|sms_'
+```
+
+Look for `email_notifications_configured`, `email_notification_queued`, and `email_notification_submitted` with `status=accepted` and the generated Message-ID. This confirms SMTP-server acceptance; confirm actual delivery in the recipient's inbox or spam folder. `email_notification_failed` includes a safe reason and SMTP error code when available; `authentication_failed` with code `535` indicates rejected login credentials. The first version has no automatic retry or persistent outbox, so uncertain submissions are not resent. See [Python's SMTP documentation](https://docs.python.org/3/library/smtplib.html) for the transport behavior.
+
+Set `email_enabled` back to `false` and restart to disable all email. Runtime/credential changes require a restart but no package reinstall. Python code changes require installation before restart. No additional email package is required.
 
 ## Database Purpose
 
@@ -640,6 +675,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
 
+- `9c6ea81` Add configurable Twilio service startup SMS
 - `0ab9bed` Track status only for enabled controllers
 - `a7fe1e0` Disable automatic Airtable calls at zero interval
 - `7a0af15` Refresh README update history
@@ -659,7 +695,6 @@ Recent history from git (through the commit before this README edit; run the com
 - `48e4343` Preserve access request IDs across response and CSV
 - `81e150c` Log access requests to transactions CSV
 - `20e5913` Track controller online status in state file
-- `239dd50` Add explicit access decision diagnostics
 
 To see the latest 20 commits at any time:
 

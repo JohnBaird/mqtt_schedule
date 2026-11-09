@@ -108,20 +108,28 @@ def prepare_cli(monkeypatch, settings, *, fail_service=False):
             return 0
 
     class FakeNotifier:
+        def __init__(self, channel):
+            self.channel = channel
+
         def notify_service_started(self, **kwargs):
-            events.append(("sms_start", kwargs))
+            events.append((f"{self.channel}_start", kwargs))
 
         def close(self):
-            events.append("sms_closed")
+            events.append(f"{self.channel}_closed")
 
     def build_notifications(value, *, dry_run=False):
         events.append(("sms_build", dry_run))
-        return FakeNotifier()
+        return FakeNotifier("sms")
+
+    def build_email_notifications(value, *, dry_run=False):
+        events.append(("email_build", dry_run))
+        return FakeNotifier("email")
 
     monkeypatch.setattr(cli, "SchedulerApplication", FakeApplication)
     monkeypatch.setattr(cli, "ServiceRunner", FakeRunner)
     monkeypatch.setattr(cli.SignalAwareService, "install_signal_handlers", lambda _: None)
     monkeypatch.setattr(cli, "build_sms_notifications", build_notifications)
+    monkeypatch.setattr(cli, "build_email_notifications", build_email_notifications)
     return events
 
 
@@ -145,6 +153,7 @@ def test_service_exception_closes_sms_worker(settings, monkeypatch):
     with pytest.raises(RuntimeError, match="test service error"):
         cli.main()
     assert events[-2:] == ["sms_closed", "mqtt_closed"]
+    assert "email_closed" in events
 
 
 @pytest.mark.parametrize("dry_run", [False, True])
@@ -152,4 +161,19 @@ def test_one_shot_commands_do_not_start_sms(settings, monkeypatch, dry_run):
     events = prepare_cli(monkeypatch, settings)
     monkeypatch.setattr(sys, "argv", ["mqtt_schedule"] + (["--dry-run"] if dry_run else []))
     assert cli.main() == 0
-    assert not any(isinstance(item, tuple) and item[0].startswith("sms_") for item in events)
+    assert not any(isinstance(item, tuple) and item[0].startswith(("sms_", "email_")) for item in events)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_service_mode_wires_email_startup_with_sms_and_closes_both(settings, monkeypatch, dry_run):
+    events = prepare_cli(monkeypatch, replace(settings, email_enabled=True))
+    monkeypatch.setattr(sys, "argv", ["mqtt_schedule", "--service"] + (["--dry-run"] if dry_run else []))
+    assert cli.main() == 0
+    assert ("email_build", dry_run) in events
+    email_startups = [item for item in events if isinstance(item, tuple) and item[0] == "email_start"]
+    sms_startups = [item for item in events if isinstance(item, tuple) and item[0] == "sms_start"]
+    assert len(email_startups) == len(sms_startups) == 1
+    assert email_startups[0][1] == sms_startups[0][1]
+    assert events.index(email_startups[0]) < events.index("service_loop")
+    expected_cleanup = ["email_closed", "sms_closed"] + ([] if dry_run else ["mqtt_closed"])
+    assert events[-len(expected_cleanup):] == expected_cleanup
