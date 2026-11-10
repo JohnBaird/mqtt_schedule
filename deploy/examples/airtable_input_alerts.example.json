@@ -7,8 +7,11 @@
         "enabled": false,
         "controller": ["recExampleController"],
         "inputCategory": "Digital GPIO",
-        "inputIndex": 0,
-        "edge": "negative",
+        "inputIndex": "0",
+        "triggerSource": "negativeEdge",
+        "notificationCooldown": 0,
+        "startTime": 0,
+        "endTime": 0,
         "channels": ["sms", "email"],
         "message": "Example input 0 negative edge"
       }

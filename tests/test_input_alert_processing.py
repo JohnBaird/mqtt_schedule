@@ -1,5 +1,6 @@
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 import json
 import logging
 from pathlib import Path
@@ -363,3 +364,300 @@ def test_paho_preserves_retained_metadata_without_changing_payload(monkeypatch):
     raw = json.dumps(report())
     client.on_message(client, None, SimpleNamespace(topic=TOPIC, payload=raw.encode(), retain=True))
     assert messages == [MQTTInboundMessage(TOPIC, raw, retained=True)]
+
+
+def modern_rule(*, index=0, trigger="levelHigh", cooldown=1200, start=0, end=0, **changes):
+    record = rule(index=index)
+    record["id"] = f"rec-{index}-{trigger}"
+    record["fields"].pop("edge")
+    record["fields"].update(inputIndex=str(index), triggerSource=trigger, notificationCooldown=cooldown,
+                             startTime=start, endTime=end)
+    record["fields"].update(changes)
+    return record
+
+
+def timed_processor(settings, *, sms=None, email=None, at="2026-11-10T09:00:00-05:00"):
+    clock = {"wall": datetime.fromisoformat(at).timestamp(), "elapsed": 100.0}
+    handler = processor(settings, sms=sms, email=email, monotonic_clock=lambda: clock["elapsed"])
+    handler.clock = lambda: clock["wall"]
+    return handler, clock
+
+
+def send_observation(handler, clock, report_id, **changes):
+    payload = report(_iD=report_id, unixTime=clock["wall"], positive_edges=0, negative_edges=0)
+    payload.update(changes)
+    handler.handle_response(source_serial=SERIAL, payload=payload)
+
+
+def advance(clock, seconds):
+    clock["wall"] += seconds
+    clock["elapsed"] += seconds
+
+
+TRIGGERS = [
+    ("positiveEdge", {"positive_edges": 1}), ("negativeEdge", {"negative_edges": 1}),
+    ("levelHigh", {"inputLevelsBitmap": 1}), ("levelLow", {"inputLevelsBitmap": 0}),
+]
+
+
+@pytest.mark.parametrize("trigger,observation", TRIGGERS)
+def test_cooldown_limits_every_trigger_type_and_accepts_exact_boundary(setup, trigger, observation, caplog):
+    caplog.set_level(logging.INFO)
+    save_rules(setup, modern_rule(trigger=trigger, cooldown=1200))
+    sms, email = QueueSpy(), QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms, email=email)
+    send_observation(handler, clock, "first", **observation)
+    assert len(sms.calls) == len(email.calls) == 1
+    advance(clock, 1199)
+    send_observation(handler, clock, "suppressed", **observation)
+    assert len(sms.calls) == len(email.calls) == 1
+    advance(clock, 1)
+    send_observation(handler, clock, "boundary", **observation)
+    assert len(sms.calls) == len(email.calls) == 2
+    assert "reason=cooldown" in caplog.text
+
+
+@pytest.mark.parametrize("trigger,observation", TRIGGERS)
+def test_zero_cooldown_allows_each_distinct_report_but_never_duplicates(setup, trigger, observation):
+    save_rules(setup, modern_rule(trigger=trigger, cooldown=0))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    for report_id in ("first", "second", "third", "third"):
+        send_observation(handler, clock, report_id, **observation)
+    assert len(sms.calls) == 3
+    assert not handler._cooldowns
+
+
+def test_restart_clears_cooldown_without_clearing_persisted_report_protection(setup):
+    save_rules(setup, modern_rule())
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    send_observation(handler, clock, "first", inputLevelsBitmap=1)
+    advance(clock, 1)
+    send_observation(handler, clock, "second", inputLevelsBitmap=1)
+    restarted, restarted_clock = timed_processor(setup, sms=sms)
+    send_observation(restarted, restarted_clock, "first", inputLevelsBitmap=1)
+    assert len(sms.calls) == 1
+    send_observation(restarted, restarted_clock, "new-after-restart", inputLevelsBitmap=1)
+    assert len(sms.calls) == 2
+    state = json.loads(setup.input_alert_state_file.read_text())
+    assert set(state) == {"version", "reports"}
+    assert "cooldown" not in setup.input_alert_state_file.read_text()
+
+
+def test_channels_and_rules_have_independent_cooldowns_and_rejected_queue_does_not_consume_it(setup):
+    save_rules(setup, modern_rule(), modern_rule(index=1))
+    sms, email = QueueSpy(accepted=False), QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms, email=email)
+    send_observation(handler, clock, "first", inputLevelsBitmap=1)
+    assert len(sms.calls) == len(email.calls) == 1
+    sms.accepted = True
+    advance(clock, 1)
+    send_observation(handler, clock, "second", inputLevelsBitmap=3)
+    assert len(sms.calls) == 3  # Retried channel for input 0 and independent input 1.
+    assert len(email.calls) == 2  # Input 0 remains in cooldown; input 1 is independent.
+
+
+def test_opposite_edges_on_same_input_do_not_share_cooldown(setup):
+    save_rules(setup, modern_rule(trigger="positiveEdge"), modern_rule(trigger="negativeEdge"))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    send_observation(handler, clock, "both", positive_edges=1, negative_edges=1)
+    assert len(sms.calls) == 2
+
+
+def test_cooldown_uses_monotonic_time_not_wall_clock_adjustments(setup):
+    save_rules(setup, modern_rule())
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    send_observation(handler, clock, "first", inputLevelsBitmap=1)
+    clock["wall"] += 7200
+    clock["elapsed"] += 10
+    send_observation(handler, clock, "clock-forward", inputLevelsBitmap=1)
+    assert len(sms.calls) == 1
+    clock["wall"] -= 14400
+    clock["elapsed"] += 1190
+    send_observation(handler, clock, "clock-backward", inputLevelsBitmap=1)
+    assert len(sms.calls) == 2
+
+
+def test_condition_clearing_does_not_reset_rate_limit_and_expiry_does_not_send_by_itself(setup):
+    save_rules(setup, modern_rule())
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    send_observation(handler, clock, "high", inputLevelsBitmap=1)
+    advance(clock, 1)
+    send_observation(handler, clock, "low", inputLevelsBitmap=0)
+    send_observation(handler, clock, "high-again", inputLevelsBitmap=1)
+    assert len(sms.calls) == 1
+    advance(clock, 1200)
+    assert len(sms.calls) == 1
+    send_observation(handler, clock, "fresh-high", inputLevelsBitmap=1)
+    assert len(sms.calls) == 2
+
+
+@pytest.mark.parametrize("trigger,observation", TRIGGERS)
+@pytest.mark.parametrize("at,expected", [("07:59:59", 0), ("08:00:00", 1), ("17:59:59", 1), ("18:00:00", 0)])
+def test_windows_apply_to_all_trigger_types_start_inclusive_end_exclusive(setup, trigger, observation, at, expected, caplog):
+    save_rules(setup, modern_rule(trigger=trigger, cooldown=0, start=28800, end=64800))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms, at=f"2026-11-10T{at}-05:00")
+    send_observation(handler, clock, "window-test", **observation)
+    assert len(sms.calls) == expected
+    assert "input_alert_rule_missing" not in caplog.text
+
+
+@pytest.mark.parametrize("at,expected", [("21:59:59", 0), ("22:00:00", 1), ("23:59:59", 1),
+                                      ("00:00:00", 1), ("05:59:59", 1), ("06:00:00", 0)])
+def test_overnight_windows(setup, at, expected):
+    save_rules(setup, modern_rule(start=79200, end=21600))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms, at=f"2026-11-10T{at}-05:00")
+    send_observation(handler, clock, "overnight", inputLevelsBitmap=1)
+    assert len(sms.calls) == expected
+
+
+def test_window_uses_configured_timezone_instead_of_host_timezone(setup):
+    setup = replace(setup, timezone_name="America/Los_Angeles")
+    save_rules(setup, modern_rule(start=28800, end=64800))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms, at="2026-11-10T13:00:00+00:00")
+    send_observation(handler, clock, "five-am-pacific", inputLevelsBitmap=1)
+    assert sms.calls == []
+    advance(clock, 3 * 3600)
+    send_observation(handler, clock, "eight-am-pacific", inputLevelsBitmap=1)
+    assert len(sms.calls) == 1
+
+
+def test_outside_window_does_not_consume_cooldown(setup):
+    save_rules(setup, modern_rule(start=28800, end=64800))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms, at="2026-11-10T07:59:59-05:00")
+    send_observation(handler, clock, "outside", inputLevelsBitmap=1)
+    assert not handler._cooldowns
+    advance(clock, 1)
+    send_observation(handler, clock, "inside", inputLevelsBitmap=1)
+    assert len(sms.calls) == 1
+
+
+@pytest.mark.parametrize("data,expected_high,expected_low", [
+    ({"inputLevelsBitmap": 1, "inputActiveBitmap": 0}, 1, 0),
+    ({"inputLevelsBitmap": 0, "inputActiveBitmap": 1}, 0, 1),
+    ({"input_ports": 1}, 1, 0), ({"input_ports": 0}, 0, 1),
+    ({"inputs": {"input_0": {"level": 1, "active": False}}}, 1, 0),
+    ({"inputs": {"input_0": {"index": 0, "level": 0, "active": False}}}, 0, 1),
+    ({"inputLevelsBitmap": 1, "inputs": {"input_0": {"level": 0}}, "input_ports": 0}, 1, 0),
+    ({"inputActiveBitmap": 1}, 0, 0), ({"inputLevelsBitmap": "1", "input_ports": 1}, 0, 0),
+    ({"inputLevelsBitmap": True}, 0, 0), ({"inputLevelsBitmap": 256}, 0, 0),
+    ({"input_ports": 32896}, 0, 0), ({"inputs": {}}, 0, 0),
+    ({"inputs": {"input_1": {"level": 0}}}, 0, 0),
+    ({"inputs": {"input_0": {"index": 1, "level": 0}}}, 0, 0),
+    ({"inputs": {"input_0": {"index": False, "level": 0}}}, 0, 0),
+    ({"inputs": {"input_0": {"level": True}}}, 0, 0),
+    ({"inputLevelsBitmap": 1, "inputCount": True}, 0, 0),
+])
+def test_levels_use_physical_state_never_active_bitmap_and_never_infer_missing_inputs(setup, data, expected_high, expected_low):
+    save_rules(setup, modern_rule(trigger="levelHigh", cooldown=0), modern_rule(trigger="levelLow", cooldown=0))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    send_observation(handler, clock, "levels", **data)
+    assert len(sms.calls) == expected_high + expected_low
+    if expected_high:
+        assert "trigger: levelHigh" in sms.calls[0]["body"]
+    if expected_low:
+        assert "trigger: levelLow" in sms.calls[0]["body"]
+
+
+def test_input_count_limits_level_observations_and_missing_rule_warnings_remain_edge_only(setup, caplog):
+    save_rules(setup, modern_rule(index=2, trigger="levelLow"))
+    handler, clock = timed_processor(setup, sms=QueueSpy())
+    send_observation(handler, clock, "only-two-inputs", inputLevelsBitmap=0, inputCount=2)
+    assert handler.sms.calls == []
+    assert "input_alert_rule_missing" not in caplog.text
+
+
+def test_invalid_level_data_does_not_drop_valid_edges(setup, caplog):
+    save_rules(setup, modern_rule(), modern_rule(trigger="negativeEdge"))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    send_observation(handler, clock, "bad-level-good-edge", inputLevelsBitmap="bad", negative_edges=1)
+    assert len(sms.calls) == 1 and sms.calls[0]["event"] == "input_edge"
+    assert "input_alert_levels_ignored reason=invalid_levels" in caplog.text
+
+
+@pytest.mark.parametrize("reason", ["requested", "changed"])
+def test_level_rules_are_evaluated_with_zero_edge_masks_on_both_response_paths(setup, reason):
+    save_rules(setup, modern_rule())
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    inbound = AccessRequestMessageHandler(settings=setup, maintenance_publisher=None, source_serial=SERVER,
+                                          input_alert_processor=handler)
+    inbound.handle_message(MQTTInboundMessage(TOPIC, json.dumps(report(
+        _iD="level-report", unixTime=clock["wall"], positive_edges=0, negative_edges=0,
+        inputLevelsBitmap=1, reason=reason,
+    ))))
+    assert len(sms.calls) == 1 and sms.calls[0]["event"] == "input_level"
+
+
+def test_disabled_channels_and_rules_do_not_create_cooldowns(setup):
+    setup = replace(setup, sms_enabled=False, email_enabled=False)
+    save_rules(setup, modern_rule())
+    sms, email = QueueSpy(), QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms, email=email)
+    send_observation(handler, clock, "channels-disabled", inputLevelsBitmap=1)
+    assert not sms.calls and not email.calls and not handler._cooldowns
+    save_rules(setup, modern_rule(enabled=False))
+    send_observation(handler, clock, "rule-disabled", inputLevelsBitmap=1)
+    assert not handler._cooldowns
+
+
+def test_cooldown_state_is_bounded_to_live_rules_and_identity_changes_do_not_inherit_it(setup):
+    save_rules(setup, modern_rule())
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    send_observation(handler, clock, "first", inputLevelsBitmap=1)
+    assert len(handler._cooldowns) == 1
+    record = modern_rule(index=1)
+    record["id"] = "rec-0-levelHigh"  # Same Airtable row moved to a different input.
+    save_rules(setup, record)
+    send_observation(handler, clock, "different-input", inputLevelsBitmap=2)
+    assert len(sms.calls) == 2 and len(handler._cooldowns) == 1
+
+
+def test_level_report_stale_retained_and_dry_run_protections_still_apply(setup):
+    save_rules(setup, modern_rule(cooldown=0))
+    sms = QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms)
+    payload = report(negative_edges=0, inputLevelsBitmap=1, unixTime=clock["wall"] - 301)
+    handler.handle_response(source_serial=SERIAL, payload=payload)
+    payload["unixTime"] = clock["wall"]
+    handler.handle_response(source_serial=SERIAL, payload=payload, retained=True)
+    handler.dry_run = True
+    handler.handle_response(source_serial=SERIAL, payload=payload)
+    assert not sms.calls and not setup.input_alert_state_file.exists()
+
+
+def test_four_supplied_rule_shapes_work_together_without_changing_mqtt_payload(setup):
+    save_rules(setup,
+               modern_rule(index=2, trigger="levelHigh", cooldown=1500, start=28800, end=64800, channels=["sms"]),
+               modern_rule(trigger="negativeEdge", cooldown=0, channels=["sms"]),
+               modern_rule(trigger="positiveEdge", cooldown=0, channels=["sms"]),
+               modern_rule(index=1, trigger="levelLow", cooldown=1200, start=28800, end=64800, channels=["sms"]))
+    sms, email = QueueSpy(), QueueSpy()
+    handler, clock = timed_processor(setup, sms=sms, email=email)
+    incoming = report(unixTime=clock["wall"], inputLevelsBitmap=4, inputCount=8)
+    original = json.dumps(incoming, sort_keys=True)
+    handler.handle_response(source_serial=SERIAL, payload=incoming)
+    assert len(sms.calls) == 3 and not email.calls
+    assert json.dumps(incoming, sort_keys=True) == original
+    advance(clock, 1)
+    send_observation(handler, clock, "positive", positive_edges=1, inputLevelsBitmap=5)
+    assert len(sms.calls) == 4
+    advance(clock, 1199)
+    send_observation(handler, clock, "twenty-minutes", inputLevelsBitmap=4)
+    assert len(sms.calls) == 5
+    assert "input: 1; trigger: levelLow" in sms.calls[-1]["body"]
+    advance(clock, 300)
+    send_observation(handler, clock, "twenty-five-minutes", inputLevelsBitmap=4)
+    assert len(sms.calls) == 6 and not email.calls
+    assert "input: 2; trigger: levelHigh" in sms.calls[-1]["body"]

@@ -8,6 +8,10 @@ from .airtable_repositories import AirtableFileValidationSummary, AirtableValida
 from .airtable_values import enabled_value
 
 
+_EDGE_TRIGGERS = {"positive": "positiveEdge", "negative": "negativeEdge"}
+_TRIGGER_SOURCES = ("positiveEdge", "negativeEdge", "levelHigh", "levelLow")
+
+
 @dataclass(frozen=True)
 class InputAlertRule:
     record_id: str
@@ -20,6 +24,55 @@ class InputAlertRule:
     edge: str
     channels: tuple[str, ...]
     message: str
+    trigger_source: str = ""
+    notification_cooldown_seconds: int = 0
+    start_time_seconds: int = 0
+    end_time_seconds: int = 0
+
+    @property
+    def effective_trigger_source(self) -> str:
+        return self.trigger_source or _EDGE_TRIGGERS.get(self.edge, "")
+
+    @property
+    def match_source(self) -> str:
+        return self.edge or self.effective_trigger_source
+
+
+def _input_index(value: object) -> int:
+    if isinstance(value, str) and len(value) == 1 and "0" <= value <= "7":
+        return int(value)
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not 0 <= value <= 7 or int(value) != value):
+        raise ValueError("inputIndex must be an integer from 0 through 7 or its single-digit text value.")
+    return int(value)
+
+
+def _trigger_source(fields: dict[str, object]) -> str:
+    legacy = fields.get("edge")
+    trigger = fields.get("triggerSource")
+    if "triggerSource" not in fields:
+        if legacy not in ("positive", "negative"):
+            raise ValueError("triggerSource must be positiveEdge, negativeEdge, levelHigh, or levelLow; legacy edge must be positive or negative.")
+        return _EDGE_TRIGGERS[legacy]
+    if trigger not in _TRIGGER_SOURCES:
+        raise ValueError("triggerSource must be positiveEdge, negativeEdge, levelHigh, or levelLow.")
+    if "edge" in fields and (legacy not in ("positive", "negative") or _EDGE_TRIGGERS[legacy] != trigger):
+        raise ValueError("edge and triggerSource conflict; remove the legacy edge field when migrating.")
+    return trigger
+
+
+def _seconds(value: object, name: str, maximum: int | None = None) -> int:
+    if (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0
+            or (maximum is not None and value > maximum)):
+        raise ValueError(f"{name} must be a nonnegative whole number of seconds" +
+                         (f" no greater than {maximum}." if maximum is not None else "."))
+    try:
+        seconds = int(value)
+    except (ValueError, OverflowError):
+        raise ValueError(f"{name} must be a finite whole number of seconds.") from None
+    if seconds != value:
+        raise ValueError(f"{name} must be a whole number of seconds.")
+    return seconds
 
 
 def _controller_index(path: Path) -> dict[str, tuple[str, str]]:
@@ -96,25 +149,38 @@ def _parse_rules(payload: object, controller_file: Path) -> tuple[int, list[Inpu
         else:
             controller_id = links[0]
 
-        input_index = fields.get("inputIndex")
-        if (isinstance(input_index, bool) or not isinstance(input_index, (int, float))
-                or not 0 <= input_index <= 7 or int(input_index) != input_index):
-            error(prefix + "inputIndex must be an integer from 0 through 7.")
-        edge = fields.get("edge")
-        if edge not in ("positive", "negative"):
-            error(prefix + "edge must be positive or negative.")
+        try:
+            input_index = _input_index(fields.get("inputIndex"))
+        except ValueError as exc:
+            error(prefix + str(exc))
+        try:
+            trigger = _trigger_source(fields)
+            edge = {"positiveEdge": "positive", "negativeEdge": "negative"}.get(trigger, "")
+        except ValueError as exc:
+            error(prefix + str(exc))
+        try:
+            cooldown = _seconds(fields.get("notificationCooldown", fields.get("cycleTime", 0)), "notificationCooldown")
+            if ("notificationCooldown" in fields and "cycleTime" in fields
+                    and _seconds(fields["cycleTime"], "cycleTime") != cooldown):
+                raise ValueError("notificationCooldown and legacy cycleTime conflict.")
+            start = _seconds(fields.get("startTime", 0), "startTime", 86399)
+            end = _seconds(fields.get("endTime", 0), "endTime", 86400)
+            if start == end and start != 0:
+                raise ValueError("Equal startTime/endTime is only allowed for 0/0 (all day).")
+        except ValueError as exc:
+            error(prefix + str(exc))
         channels = fields.get("channels", [])
         if not isinstance(channels, list) or any(channel not in ("sms", "email") for channel in channels):
             error(prefix + "channels must be a multiple-select list containing only sms and/or email.")
 
         if len(issues) != errors_before:
             continue
-        key = (controller_id, category.strip(), int(input_index), edge)
+        serial, controller_name = controllers[controller_id]
+        key = (serial, category.strip(), input_index, edge or trigger)
         if key in seen_keys:
-            error(prefix + "another enabled rule already matches this controller, category, input, and edge.")
+            error(prefix + "another enabled rule already matches this controller, category, input, and trigger.")
             continue
         seen_keys.add(key)
-        serial, controller_name = controllers[controller_id]
         rules.append(InputAlertRule(
             record_id=record_id,
             name=name.strip(),
@@ -122,10 +188,14 @@ def _parse_rules(payload: object, controller_file: Path) -> tuple[int, list[Inpu
             controller_serial=serial,
             controller_name=controller_name,
             input_category=category.strip(),
-            input_index=int(input_index),
+            input_index=input_index,
             edge=edge,
             channels=tuple(dict.fromkeys(channels)),
             message=message.strip(),
+            trigger_source=trigger,
+            notification_cooldown_seconds=cooldown,
+            start_time_seconds=start,
+            end_time_seconds=end,
         ))
     return len(records), rules, issues
 
@@ -174,11 +244,15 @@ class FileInputAlertRepository:
             if enabled_value(fields.get("enabled")):
                 continue
             links = fields.get("controller")
-            category, index, edge = fields.get("inputCategory"), fields.get("inputIndex"), fields.get("edge")
+            category = fields.get("inputCategory")
             if (not isinstance(links, list) or len(links) != 1 or not isinstance(links[0], str)
-                    or links[0] not in controllers or not isinstance(category, str) or not category.strip()
-                    or isinstance(index, bool) or not isinstance(index, (int, float))
-                    or not 0 <= index <= 7 or int(index) != index or edge not in ("positive", "negative")):
+                    or links[0] not in controllers or not isinstance(category, str) or not category.strip()):
                 continue
-            disabled_keys.add((controllers[links[0]][0], category.strip(), int(index), edge))
+            try:
+                index = _input_index(fields.get("inputIndex"))
+                trigger = _trigger_source(fields)
+            except ValueError:
+                continue
+            match_source = {"positiveEdge": "positive", "negativeEdge": "negative"}.get(trigger, trigger)
+            disabled_keys.add((controllers[links[0]][0], category.strip(), index, match_source))
         return rules, disabled_keys

@@ -91,7 +91,7 @@ def test_enabled_rules_resolve_controller_link_and_keep_both_directions(settings
 @pytest.mark.parametrize("changes", [
     {"Name": ""}, {"inputCategory": ""}, {"message": ""},
     {"controller": []}, {"controller": ["111"]}, {"controller": ["recController", "recOther"]},
-    {"inputIndex": -1}, {"inputIndex": 8}, {"inputIndex": True}, {"inputIndex": "0"}, {"inputIndex": 0.5},
+    {"inputIndex": -1}, {"inputIndex": 8}, {"inputIndex": True}, {"inputIndex": "8"}, {"inputIndex": 0.5},
     {"edge": "rising"}, {"channels": "sms"}, {"channels": ["push"]},
 ])
 def test_invalid_enabled_rule_is_rejected(settings, changes):
@@ -330,3 +330,109 @@ def test_input_alert_settings_load_from_json_and_environment(tmp_path, monkeypat
     assert value.airtable_input_alerts_sync_enabled is False
     assert value.airtable_input_alerts_sync_run_immediately is False
     assert RuntimeSettings.from_env().input_alerts_file == tmp_path / "override.json"
+
+
+def new_alert(*, trigger="negativeEdge", index="0", **changes):
+    record = alert(inputIndex=index, triggerSource=trigger, notificationCooldown=0, startTime=0, endTime=0)
+    record["fields"].pop("edge")
+    record["fields"].update(changes)
+    return record
+
+
+@pytest.mark.parametrize("trigger", ["positiveEdge", "negativeEdge", "levelHigh", "levelLow"])
+@pytest.mark.parametrize("index", ["0", "7", 0, 7, 2.0])
+def test_new_rule_schema_normalizes_strings_and_keeps_all_trigger_types(settings, trigger, index):
+    value = payload(new_alert(trigger=trigger, index=index, notificationCooldown=1200, startTime=28800, endTime=64800))
+    settings.input_alerts_file.write_text(json.dumps(value), encoding="utf-8")
+    assert validate(settings, value).ok
+    rule = FileInputAlertRepository(settings.input_alerts_file, controller_file=settings.controller_file).list_rules()[0]
+    assert rule.input_index == int(index)
+    assert rule.effective_trigger_source == trigger
+    assert rule.notification_cooldown_seconds == 1200
+    assert rule.start_time_seconds == 28800 and rule.end_time_seconds == 64800
+    assert rule.edge == {"positiveEdge": "positive", "negativeEdge": "negative"}.get(trigger, "")
+
+
+@pytest.mark.parametrize("changes", [
+    {"inputIndex": "00"}, {"inputIndex": " 0"}, {"inputIndex": "0.0"}, {"inputIndex": "input_0"},
+    {"inputIndex": []}, {"inputIndex": None}, {"triggerSource": "positive"}, {"triggerSource": []},
+    {"triggerSource": None}, {"triggerSource": "LEVELHIGH"}, {"notificationCooldown": -1},
+    {"notificationCooldown": "0:20"}, {"notificationCooldown": True}, {"notificationCooldown": 0.5},
+    {"notificationCooldown": float("inf")}, {"notificationCooldown": float("nan")},
+    {"startTime": -1}, {"startTime": 86400}, {"startTime": "28800"}, {"startTime": True},
+    {"endTime": 86401}, {"endTime": 0.5}, {"endTime": None}, {"startTime": 100, "endTime": 100},
+    {"edge": "positive"}, {"notificationCooldown": 1200, "cycleTime": 1500},
+])
+def test_invalid_new_rule_fields_are_rejected(settings, changes):
+    assert not validate(settings, payload(new_alert(**changes))).ok
+
+
+def test_legacy_rule_defaults_and_matching_aliases_are_backwards_compatible(settings):
+    settings.input_alerts_file.write_text(json.dumps(payload(alert())), encoding="utf-8")
+    repository = FileInputAlertRepository(settings.input_alerts_file, controller_file=settings.controller_file)
+    rule = repository.list_rules()[0]
+    assert rule.edge == "negative" and rule.effective_trigger_source == "negativeEdge"
+    assert rule.notification_cooldown_seconds == rule.start_time_seconds == rule.end_time_seconds == 0
+    same = alert(triggerSource="negativeEdge", notificationCooldown=1200, cycleTime=1200)
+    assert validate(settings, payload(same)).ok
+    legacy_cycle = new_alert()
+    legacy_cycle["fields"].pop("notificationCooldown")
+    legacy_cycle["fields"]["cycleTime"] = 1500
+    settings.input_alerts_file.write_text(json.dumps(payload(legacy_cycle)), encoding="utf-8")
+    assert repository.list_rules()[0].notification_cooldown_seconds == 1500
+
+
+def test_missing_optional_duration_fields_default_to_zero_and_overnight_is_valid(settings):
+    record = new_alert(trigger="levelLow")
+    for name in ("startTime", "endTime", "notificationCooldown"):
+        record["fields"].pop(name)
+    assert validate(settings, payload(record)).ok
+    assert validate(settings, payload(new_alert(startTime=79200, endTime=21600))).ok
+    assert validate(settings, payload(new_alert(startTime=0, endTime=86400))).ok
+
+
+def test_legacy_and_new_duplicates_are_rejected_but_distinct_triggers_can_coexist(settings):
+    duplicate = new_alert()
+    duplicate["id"] = "recNew"
+    assert not validate(settings, payload(alert(), duplicate)).ok
+    records = []
+    for index, trigger in enumerate(("positiveEdge", "negativeEdge", "levelHigh", "levelLow")):
+        record = new_alert(trigger=trigger)
+        record["id"] = f"rec-{index}"
+        records.append(record)
+    assert validate(settings, payload(*records)).valid_count == 4
+
+
+def test_new_disabled_rule_keys_suppress_missing_rule_warnings(settings):
+    settings.input_alerts_file.write_text(json.dumps(payload(new_alert(enabled=False))), encoding="utf-8")
+    rules, disabled = FileInputAlertRepository(settings.input_alerts_file, controller_file=settings.controller_file).load_configuration()
+    assert not rules
+    assert disabled == {("111", "Digital GPIO", 0, "negative")}
+
+
+def test_download_and_backup_accept_four_new_rules_and_preserve_raw_values(settings):
+    records = []
+    for index, trigger, cooldown, start, end in (
+        (2, "levelHigh", 1500, 28800, 64800), (0, "negativeEdge", 0, 0, 0),
+        (0, "positiveEdge", 0, 0, 0), (1, "levelLow", 1200, 28800, 64800),
+    ):
+        record = new_alert(trigger=trigger, index=str(index), notificationCooldown=cooldown, startTime=start, endTime=end)
+        record["id"] = f"rec-{index}-{trigger}"
+        records.append(record)
+    value = payload(*records)
+    service = AirtableSyncService(settings, session=FakeSession({"input-alerts": [value]}))
+    assert service.sync_targets({"input_alerts"})[0].record_count == 4
+    assert json.loads(settings.input_alerts_file.read_text()) == value
+    save_airtable_backups(settings)
+    assert json.loads((settings.airtable_backup_dir / "airtable_input_alerts.json").read_text()) == value
+
+
+def test_controller_aliases_cannot_create_duplicate_rules_for_same_physical_input(settings):
+    controllers = json.loads(settings.controller_file.read_text())
+    controllers["records"].append({"id": "recAlias", "fields": {
+        "Name": "Alias", "nameLink": "111", "enabled": True,
+    }})
+    settings.controller_file.write_text(json.dumps(controllers), encoding="utf-8")
+    first, second = new_alert(trigger="levelHigh"), new_alert(trigger="levelHigh", controller=["recAlias"])
+    second["id"] = "recAliasRule"
+    assert not validate(settings, payload(first, second)).ok

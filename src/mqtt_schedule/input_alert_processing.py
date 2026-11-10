@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from datetime import datetime
 import json
 import logging
 import math
 import os
 from pathlib import Path
 import threading
-from time import time
+from time import monotonic, time
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 from .app import ControllerRepository
-from .input_alerts import FileInputAlertRepository
+from .input_alerts import FileInputAlertRepository, InputAlertRule
 from .notifications import EmailNotifications, SmsNotifications
 from .settings import RuntimeSettings
 
@@ -20,6 +22,44 @@ def _finite_number(value: object) -> bool:
     return (isinstance(value, int) and not isinstance(value, bool)) or (
         isinstance(value, float) and math.isfinite(value)
     )
+
+
+def _physical_levels(payload: dict[str, object]) -> dict[int, int] | None:
+    count = payload.get("inputCount", 8)
+    if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 8:
+        return None
+    if "inputLevelsBitmap" in payload:
+        bitmap = payload["inputLevelsBitmap"]
+    elif "inputs" in payload:
+        inputs = payload["inputs"]
+        if not isinstance(inputs, dict):
+            return None
+        levels = {}
+        for index in range(count):
+            item = inputs.get(f"input_{index}")
+            if not isinstance(item, dict):
+                continue
+            reported_index = item.get("index", index)
+            if isinstance(reported_index, bool) or not isinstance(reported_index, int) or reported_index != index:
+                continue
+            level = item.get("level")
+            if isinstance(level, int) and not isinstance(level, bool) and level in (0, 1):
+                levels[index] = level
+        return levels or None
+    else:
+        bitmap = payload.get("input_ports")
+    if isinstance(bitmap, bool) or not isinstance(bitmap, int) or not 0 <= bitmap <= 255:
+        return None
+    return {index: (bitmap >> index) & 1 for index in range(count)}
+
+
+def _inside_window(rule: InputAlertRule, seconds: int) -> bool:
+    start, end = rule.start_time_seconds, rule.end_time_seconds
+    if start == end == 0:
+        return True
+    if start < end:
+        return start <= seconds < end
+    return seconds >= start or seconds < end
 
 
 class InputAlertReportStore:
@@ -72,6 +112,7 @@ class InputAlertProcessor:
         sms_notifications: SmsNotifications | None = None,
         email_notifications: EmailNotifications | None = None,
         dry_run: bool = False, clock: Callable[[], float] = time,
+        monotonic_clock: Callable[[], float] = monotonic,
     ) -> None:
         self.settings = settings
         self.controllers = controller_repository
@@ -79,6 +120,10 @@ class InputAlertProcessor:
         self.email = email_notifications
         self.dry_run = dry_run
         self.clock = clock
+        self.monotonic_clock = monotonic_clock
+        self.timezone = ZoneInfo(settings.timezone_name)
+        self._dispatch_lock = threading.Lock()
+        self._cooldowns: dict[tuple[str, str, str, int, str, str], float] = {}
         self.rules = FileInputAlertRepository(settings.input_alerts_file, controller_file=settings.controller_file)
         self.store = InputAlertReportStore(settings.input_alert_state_file)
         self.logger = logging.getLogger("mqtt_schedule.input_alerts")
@@ -94,7 +139,10 @@ class InputAlertProcessor:
                for mask in (positive, negative)):
             self.logger.warning("input_alert_report_ignored reason=invalid_edge_masks source_serial=%s", source_serial)
             return
-        if not positive and not negative:
+        levels = _physical_levels(payload)
+        if not positive and not negative and levels is None:
+            if "inputLevelsBitmap" in payload or "inputs" in payload:
+                self.logger.warning("input_alert_report_ignored reason=invalid_levels source_serial=%s", source_serial)
             return
         category, report_id, timestamp = payload.get("inputs_category"), payload.get("_iD"), payload.get("unixTime")
         if (not isinstance(category, str) or not category.strip() or len(category) > 128
@@ -117,41 +165,81 @@ class InputAlertProcessor:
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             self.logger.warning("input_alert_report_ignored reason=configuration_unavailable source_serial=%s", source_serial)
             return
-        try:
-            if not self.store.claim(source_serial=source_serial, category=category, report_id=report_id, now=now):
-                self.logger.info("input_alert_report_ignored reason=duplicate source_serial=%s report_id=%s", source_serial, report_id)
-                return
-        except (OSError, ValueError):
-            self.logger.error("input_alert_report_ignored reason=state_unavailable source_serial=%s report_id=%s",
-                              source_serial, report_id)
+        level_rules = [rule for rule in rules if rule.controller_serial == source_serial
+                       and rule.input_category == category and rule.effective_trigger_source in ("levelHigh", "levelLow")]
+        if not positive and not negative and not level_rules:
             return
-        by_key = {(rule.controller_serial, rule.input_category, rule.input_index, rule.edge): rule for rule in rules}
-        # Claim the whole report before dispatch: crashes/queue failures must not cause automatic duplicate sends.
-        for edge, mask in (("positive", positive), ("negative", negative)):
-            for index in range(8):
-                if not mask & (1 << index):
-                    continue
-                key = (source_serial, category, index, edge)
-                rule = by_key.get(key)
-                if rule is None:
-                    if key not in disabled_keys:
-                        self.logger.warning(
-                            "input_alert_rule_missing source_serial=%s inputs_category=%s input_index=%s edge=%s report_id=%s",
-                            source_serial, category, index, edge, report_id,
-                        )
-                    continue
-                body = (
-                    f"{rule.message}\nController: {rule.controller_name} ({source_serial}); "
-                    f"category: {category}; input: {index}; edge: {edge}; report: {report_id}"
-                )
-                for channel in rule.channels:
-                    queued = False
-                    if channel == "sms" and self.settings.sms_enabled and self.sms is not None:
-                        queued = self.sms.notify(event="input_edge", body=body)
-                    elif channel == "email" and self.settings.email_enabled and self.email is not None:
-                        queued = self.email.notify(event="input_edge", subject="MQTT Schedule input alert", body=body)
-                    self.logger.info(
-                        "input_alert_dispatch source_serial=%s inputs_category=%s input_index=%s edge=%s "
-                        "report_id=%s rule_id=%s channel=%s queued=%s",
-                        source_serial, category, index, edge, report_id, rule.record_id, channel, queued,
-                    )
+        with self._dispatch_lock:
+            try:
+                if not self.store.claim(source_serial=source_serial, category=category, report_id=report_id, now=now):
+                    self.logger.info("input_alert_report_ignored reason=duplicate source_serial=%s report_id=%s", source_serial, report_id)
+                    return
+            except (OSError, ValueError):
+                self.logger.error("input_alert_report_ignored reason=state_unavailable source_serial=%s report_id=%s",
+                                  source_serial, report_id)
+                return
+            active_keys = {self._cooldown_key(rule, channel) for rule in rules
+                           if rule.notification_cooldown_seconds > 0 for channel in rule.channels}
+            self._cooldowns = {key: stamp for key, stamp in self._cooldowns.items() if key in active_keys}
+            local_now = datetime.fromtimestamp(now, self.timezone)
+            seconds = local_now.hour * 3600 + local_now.minute * 60 + local_now.second
+            by_key = {(rule.controller_serial, rule.input_category, rule.input_index, rule.match_source): rule for rule in rules}
+            # Claim before dispatch: redelivery must not replay suppressed or already queued events.
+            for edge, mask in (("positive", positive), ("negative", negative)):
+                for index in range(8):
+                    if not mask & (1 << index):
+                        continue
+                    key = (source_serial, category, index, edge)
+                    rule = by_key.get(key)
+                    if rule is None:
+                        if key not in disabled_keys:
+                            self.logger.warning(
+                                "input_alert_rule_missing source_serial=%s inputs_category=%s input_index=%s edge=%s report_id=%s",
+                                source_serial, category, index, edge, report_id,
+                            )
+                        continue
+                    self._dispatch(rule, report_id=report_id, seconds=seconds)
+            if level_rules and levels is None:
+                self.logger.warning("input_alert_levels_ignored reason=invalid_levels source_serial=%s report_id=%s",
+                                    source_serial, report_id)
+            for rule in level_rules:
+                expected = 1 if rule.effective_trigger_source == "levelHigh" else 0
+                if levels is not None and levels.get(rule.input_index) == expected:
+                    self._dispatch(rule, report_id=report_id, seconds=seconds)
+
+    @staticmethod
+    def _cooldown_key(rule: InputAlertRule, channel: str) -> tuple[str, str, str, int, str, str]:
+        return (rule.record_id, rule.controller_serial, rule.input_category, rule.input_index,
+                rule.effective_trigger_source, channel)
+
+    def _dispatch(self, rule: InputAlertRule, *, report_id: str, seconds: int) -> None:
+        trigger = rule.effective_trigger_source
+        if not _inside_window(rule, seconds):
+            self.logger.info("input_alert_skipped reason=outside_window rule_id=%s trigger_source=%s report_id=%s",
+                             rule.record_id, trigger, report_id)
+            return
+        event = "input_edge" if rule.edge else "input_level"
+        detail = f"edge: {rule.edge}" if rule.edge else f"trigger: {trigger}"
+        body = (f"{rule.message}\nController: {rule.controller_name} ({rule.controller_serial}); "
+                f"category: {rule.input_category}; input: {rule.input_index}; {detail}; report: {report_id}")
+        for channel in rule.channels:
+            key = self._cooldown_key(rule, channel)
+            elapsed_now = self.monotonic_clock()
+            previous = self._cooldowns.get(key)
+            if previous is not None and elapsed_now - previous < rule.notification_cooldown_seconds:
+                self.logger.info("input_alert_skipped reason=cooldown rule_id=%s trigger_source=%s channel=%s report_id=%s",
+                                 rule.record_id, trigger, channel, report_id)
+                continue
+            queued = False
+            if channel == "sms" and self.settings.sms_enabled and self.sms is not None:
+                queued = self.sms.notify(event=event, body=body)
+            elif channel == "email" and self.settings.email_enabled and self.email is not None:
+                queued = self.email.notify(event=event, subject="MQTT Schedule input alert", body=body)
+            if queued and rule.notification_cooldown_seconds > 0:
+                self._cooldowns[key] = self.monotonic_clock()
+            self.logger.info(
+                "input_alert_dispatch source_serial=%s inputs_category=%s input_index=%s edge=%s "
+                "report_id=%s rule_id=%s channel=%s queued=%s trigger_source=%s",
+                rule.controller_serial, rule.input_category, rule.input_index, rule.edge,
+                report_id, rule.record_id, channel, queued, trigger,
+            )

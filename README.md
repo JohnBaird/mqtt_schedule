@@ -123,8 +123,8 @@ Configuration layout:
   - [runtime.example.json](E:\Development\mqtt_schedule\deploy\runtime.example.json:1)
   - [mqtt_schedule.env.example](E:\Development\mqtt_schedule\deploy\mqtt_schedule.env.example:1)
 - The Airtable export file contract is documented in [airtable-file-contract.md](E:\Development\mqtt_schedule\docs\airtable-file-contract.md:1).
-- The per-controller/input/edge notification table, first-download instructions, and Linux commissioning procedure are documented in [input-alerts-plan.md](docs/input-alerts-plan.md), including confirmed edge clearing after broker acknowledgment for controller `44864172347607`. Requested and unsolicited responses now use the same edge processor, with missing-rule warnings and SMS/email workers; execution is off by default through `input_alerts_enabled`.
-- The first Linux rules-only download passed validation with two enabled rules on November 9, 2026. Edge delivery has automated fake-provider coverage and still needs live Linux commissioning. Daily warning-summary emails remain deferred.
+- The per-controller/input notification table, download instructions, and Linux commissioning procedure are documented in [input-alerts-plan.md](docs/input-alerts-plan.md), including confirmed edge clearing after broker acknowledgment for controller `44864172347607`. Requested and unsolicited responses use the same processor, with missing-rule warnings and SMS/email workers; execution is off by default through `input_alerts_enabled`.
+- Linux input-edge delivery was confirmed by the owner on November 9, 2026 after reinstalling source commit `a896921` into the server virtual environment. The November 10 schema adds `triggerSource` (`positiveEdge`, `negativeEdge`, `levelHigh`, `levelLow`), string indexes, time windows, and `notificationCooldown` for every trigger type. These additions have automated fake-provider coverage and still need live commissioning. Daily warning-summary emails remain deferred.
 
 Planned placement for connection information:
 
@@ -183,7 +183,7 @@ Keep these operational switches in `/etc/mqtt_schedule/runtime.json`:
 
 With both switches `true`, each `--service` process sends one startup notification to each unique configured recipient after application setup reaches the `service_start` log. This includes a first start, a manual restart, a reboot start, or a systemd restart after a process failure. The message includes the hostname, server serial, and server-local timestamp. A single scheduler tick or manual refresh/sync does not send a startup SMS. `--dry-run`, including `--dry-run --service`, suppresses all SMS.
 
-SMS requests run on a separate worker, with connection and response timeouts. Missing or invalid Twilio configuration disables SMS with a warning while scheduling continues. Sending errors are logged without credentials, phone numbers, or message text. There is no persistent outbox, delivery-status polling, or automatic retry; an interrupted or failed notification is not replayed at the next startup. Each new service process produces its own startup event. Input-edge alerts reuse these workers when enabled; controller offline/recovery notifications are not wired in yet.
+SMS requests run on a separate worker, with connection and response timeouts. Missing or invalid Twilio configuration disables SMS with a warning while scheduling continues. Sending errors are logged without credentials, phone numbers, or message text. There is no persistent outbox, delivery-status polling, or automatic retry; an interrupted or failed notification is not replayed at the next startup. Each new service process produces its own startup event. Edge and level input alerts reuse these workers when enabled; controller offline/recovery notifications are not wired in yet.
 
 After the updated Python code has been pulled and installed into `/opt/mqtt_schedule/.venv`, edit only the two switches in the live `runtime.json`; keep its other values. Validate the JSON and restart once to apply the settings:
 
@@ -293,7 +293,7 @@ Important Linux runtime locations:
 - `/etc/mqtt_schedule/airtable_input_alerts.json`
   Optional validated input-alert rule export; execution requires `input_alerts_enabled` and matching controller/rule/channel enablement.
 - `/var/lib/mqtt_schedule/input_alert_state.json`
-  Private bounded duplicate-report state (at most 1024 report hashes, retained for 24 hours), created on the first eligible edge report. No append-only history or automatic delivery retry queue.
+  Private bounded duplicate-report state (at most 1024 report hashes, retained for 24 hours), created on the first eligible edge/level report. No append-only history or automatic delivery retry queue. Notification cooldowns are kept only in memory and reset on application restart.
 - `/var/lib/mqtt_schedule/airtable_backup/`
   Private last-known-good copies of the three core Airtable exports and the optional input-alert export when present and valid.
 - `/etc/mqtt_schedule/ow_records_current.json`
@@ -356,8 +356,11 @@ Current Airtable sync behavior:
 - `python -m mqtt_schedule --sync-airtable-now` fetches controller, schedule, and access-user exports from Airtable into the local JSON contract files.
 - Optional `--sync-input-alerts-now` fetches only the `input-alerts` table, validates enabled rules against the local controller cache, and saves a private backup. `--validate-input-alerts` checks the local rules without API calls. Both exit before MQTT or notification startup.
 - Input alerts follow the other Airtable exports: `records[].fields`, `Name`, and lowercase `enabled`. All four readers share checkbox/legacy-text enablement (`true` or `"true"` enables; false/missing/other values disable). A disabled input-alert example lives beside the other table examples in `deploy/examples/`.
+- The current input-alert schema accepts numeric indexes or text `"0"` through `"7"`, `triggerSource`, numeric-second `notificationCooldown`, `startTime`, and `endTime`. Legacy `edge`/`cycleTime` fields remain supported during migration; conflicting aliases are rejected. No new runtime settings or MQTT format changes are required. Install the updated package before downloading the changed Airtable schema.
 - Automatic input-alert sync is disabled by default; `airtable_input_alerts_sync_enabled: true` adds it to the existing refresh interval and to `--sync-airtable-now`. Its separate `airtable_input_alerts_sync_run_immediately` flag controls the startup fetch. The optional rules file never becomes required for irrigation startup. Live service execution is separately controlled by `input_alerts_enabled` (default false), `sms_enabled`, `email_enabled`, and Airtable controller/rule enablement.
 - Input-edge alerts decode independent positive/negative 8-bit masks, without requiring a preceding request. Missing matching entries log `input_alert_rule_missing` with controller/category/input/direction/report ID; explicit disabled entries and zero masks do not. Retained, invalid, or stale reports are skipped; `input_alerts_max_age_seconds` defaults to 300 with up to 60 seconds future clock tolerance. Missing/invalid rules or unusable duplicate state suppress sends and log the reason.
+- Level rules evaluate physical levels from fresh responses even with zero edge masks, preferring `inputLevelsBitmap`, then explicit `inputs.input_N.level`, then valid 8-bit `input_ports`. They never infer a level from active-low flags or absent inputs. Cooldown expiry alone does not send; a new matching fresh observation is required. Unconfigured levels do not generate warning floods on every poll.
+- Every trigger type obeys its local-time window and per-rule/channel cooldown. `startTime=0`/`endTime=0` means all day; other windows include the start and exclude the end, and can cross midnight. `notificationCooldown=1200` permits queueing at most once per 20 minutes for each rule/channel; zero means no cooldown. Cooldowns start on successful queue acceptance, use monotonic time, remain in memory only, and reset on restart. Persisted duplicate-report protection is separate and unchanged. A zero-cooldown level rule can notify on every new matching input report.
 - Duplicate protection claims each report before dispatch and survives restarts within its bounded history. It is not a durable outbox: crashes, shutdown, queue rejection, or provider failure can lose an alert, with no automatic retries. Provider submission is logged separately and is not proof of handset/inbox delivery. See the input-alert plan before commissioning.
 - Malformed pages or repeated pagination offsets fail the download rather than replacing an export with incomplete data or looping through extra API calls.
 - Existing local exports let the service start without contacting Airtable. Valid exports are copied to `airtable_backup_dir` (default `/var/lib/mqtt_schedule/airtable_backup`) as private last-known-good snapshots.
@@ -687,6 +690,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
 
+- `a896921` Add input-edge SMS and email alerts with duplicate protection
 - `d4537c5` Add optional Airtable input-alert download and validation
 - `93fe51e` Add configurable Gmail  service startup email
 - `9c6ea81` Add configurable Twilio service startup SMS
@@ -706,7 +710,6 @@ Recent history from git (through the commit before this README edit; run the com
 - `55fa81b` Add periodic Airtable sync jobs
 - `0152acf` Add controller online recovery threshold
 - `a4519a3` Log controller offline timeout events
-- `48e4343` Preserve access request IDs across response and CSV
 
 To see the latest 20 commits at any time:
 
