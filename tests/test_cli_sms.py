@@ -2,11 +2,14 @@ from dataclasses import replace
 from types import SimpleNamespace
 import logging
 import sys
+import json
+from time import time
 
 import pytest
 
 from mqtt_schedule import cli
 from mqtt_schedule.settings import RuntimeSettings
+from mqtt_schedule.mqtt_adapter import MQTTInboundMessage
 
 
 @pytest.fixture
@@ -177,3 +180,42 @@ def test_service_mode_wires_email_startup_with_sms_and_closes_both(settings, mon
     assert events.index(email_startups[0]) < events.index("service_loop")
     expected_cleanup = ["email_closed", "sms_closed"] + ([] if dry_run else ["mqtt_closed"])
     assert events[-len(expected_cleanup):] == expected_cleanup
+
+
+def test_service_can_handle_unsolicited_edges_as_soon_as_mqtt_connects(settings, monkeypatch, tmp_path):
+    settings = replace(settings, input_alerts_enabled=True, email_enabled=True,
+                       input_alerts_file=tmp_path / "alerts.json", input_alert_state_file=tmp_path / "state.json")
+    settings.controller_file.write_text(json.dumps({"records": [{"id": "recController", "fields": {
+        "Name": "Test Controller", "nameLink": "44864172347607", "enabled": True,
+    }}]}), encoding="utf-8")
+    settings.input_alerts_file.write_text(json.dumps({"records": [{"id": "recRule", "fields": {
+        "Name": "Input 0", "enabled": True, "controller": ["recController"], "inputCategory": "Digital GPIO",
+        "inputIndex": 0, "edge": "negative", "channels": ["sms", "email"], "message": "Input changed",
+    }}]}), encoding="utf-8")
+    events = prepare_cli(monkeypatch, settings)
+    class Notifier:
+        def __init__(self, channel):
+            self.channel = channel
+        def notify(self, **kwargs):
+            events.append((self.channel, kwargs["event"]))
+            return True
+        def notify_service_started(self, **kwargs):
+            pass
+        def close(self):
+            events.append(f"{self.channel}_closed")
+    monkeypatch.setattr(cli, "build_sms_notifications", lambda *a, **k: Notifier("sms"))
+    monkeypatch.setattr(cli, "build_email_notifications", lambda *a, **k: Notifier("email"))
+    def connect(*args, **kwargs):
+        kwargs["on_message"](MQTTInboundMessage(
+            "SPV1.0/irrigation/stc_input_status_response/44864172347607/123",
+            json.dumps({"_iD": "immediate-report", "unixTime": time(), "inputs_category": "Digital GPIO",
+                        "negative_edges": 1, "positive_edges": 0}),
+        ))
+        return object()
+    monkeypatch.setattr(cli.PahoClientFactory, "connect", connect)
+    monkeypatch.setattr(sys, "argv", ["mqtt_schedule", "--service"])
+    assert cli.main() == 0
+    assert ("sms", "input_edge") in events and ("email", "input_edge") in events
+    assert events.index(("sms", "input_edge")) < events.index("service_loop")
+    assert settings.input_alert_state_file.exists()
+    assert events[-3:] == ["email_closed", "sms_closed", "mqtt_closed"]

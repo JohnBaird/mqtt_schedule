@@ -54,6 +54,9 @@ class RuntimeSettings:
     airtable_schedule_table: str = "irrigation-schedule"
     airtable_access_users_table: str = "access-users"
     input_alerts_file: Path = Path("/etc/mqtt_schedule/airtable_input_alerts.json")
+    input_alerts_enabled: bool = False
+    input_alert_state_file: Path = Path("/var/lib/mqtt_schedule/input_alert_state.json")
+    input_alerts_max_age_seconds: int = 300
     airtable_input_alerts_table: str = "input-alerts"
     airtable_input_alerts_sync_enabled: bool = False
     airtable_input_alerts_sync_run_immediately: bool = False
@@ -113,6 +116,13 @@ class RuntimeSettings:
     rain_48h_block_mm: float = 8.0
     rain_7d_block_mm: float = 15.0
     require_latest_within_minutes: int = 180
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.input_alerts_enabled, bool):
+            raise ValueError("input_alerts_enabled must be a JSON boolean")
+        age = self.input_alerts_max_age_seconds
+        if isinstance(age, bool) or not isinstance(age, int) or not 1 <= age <= 86400:
+            raise ValueError("input_alerts_max_age_seconds must be an integer from 1 through 86400")
 
     @classmethod
     def from_env(cls) -> RuntimeSettings:
@@ -236,6 +246,7 @@ class RuntimeSettings:
             airtable_schedule_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_SCHEDULE_TABLE", "irrigation-schedule"),
             airtable_access_users_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_ACCESS_USERS_TABLE", "access-users"),
             input_alerts_file=Path(os.environ.get("MQTT_SCHEDULE_INPUT_ALERTS_FILE") or base_dir / "airtable_input_alerts.json"),
+            input_alert_state_file=Path(os.environ.get("MQTT_SCHEDULE_INPUT_ALERT_STATE_FILE") or state_dir / "input_alert_state.json"),
             airtable_input_alerts_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_TABLE", "input-alerts"),
             airtable_input_alerts_sync_enabled=_env_bool("MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_SYNC_ENABLED", False),
             airtable_input_alerts_sync_run_immediately=_env_bool("MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_SYNC_RUN_IMMEDIATELY", False),
@@ -361,6 +372,9 @@ class RuntimeSettings:
             airtable_schedule_table=data.get("airtable_schedule_table", "irrigation-schedule"),
             airtable_access_users_table=data.get("airtable_access_users_table", "access-users"),
             input_alerts_file=Path(data.get("input_alerts_file", "/etc/mqtt_schedule/airtable_input_alerts.json")),
+            input_alerts_enabled=_json_bool(data, "input_alerts_enabled", False),
+            input_alert_state_file=Path(data.get("input_alert_state_file", "/var/lib/mqtt_schedule/input_alert_state.json")),
+            input_alerts_max_age_seconds=data.get("input_alerts_max_age_seconds", 300),
             airtable_input_alerts_table=data.get("airtable_input_alerts_table", "input-alerts"),
             airtable_input_alerts_sync_enabled=_json_bool(data, "airtable_input_alerts_sync_enabled", False),
             airtable_input_alerts_sync_run_immediately=_json_bool(data, "airtable_input_alerts_sync_run_immediately", False),
@@ -499,6 +513,9 @@ class RuntimeSettings:
                 self.airtable_access_users_table,
             ),
             input_alerts_file=_env_path("MQTT_SCHEDULE_INPUT_ALERTS_FILE", self.input_alerts_file),
+            input_alerts_enabled=self.input_alerts_enabled,
+            input_alert_state_file=_env_path("MQTT_SCHEDULE_INPUT_ALERT_STATE_FILE", self.input_alert_state_file),
+            input_alerts_max_age_seconds=self.input_alerts_max_age_seconds,
             airtable_input_alerts_table=os.environ.get("MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_TABLE", self.airtable_input_alerts_table),
             airtable_input_alerts_sync_enabled=_env_bool(
                 "MQTT_SCHEDULE_AIRTABLE_INPUT_ALERTS_SYNC_ENABLED", self.airtable_input_alerts_sync_enabled,

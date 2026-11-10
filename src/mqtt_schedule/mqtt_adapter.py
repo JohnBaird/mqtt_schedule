@@ -90,6 +90,7 @@ class MQTTCommandMessage:
 class MQTTInboundMessage:
     topic: str
     payload: str
+    retained: bool = False
 
 
 @dataclass(frozen=True)
@@ -425,7 +426,8 @@ class PahoClientFactory:
                 try:
                     payload = message.payload.decode("utf-8") if isinstance(message.payload, bytes) else str(message.payload)
                     logger.info("mqtt_message_received topic=%s", message.topic)
-                    on_message(MQTTInboundMessage(topic=message.topic, payload=payload))
+                    on_message(MQTTInboundMessage(topic=message.topic, payload=payload,
+                                                  retained=bool(getattr(message, "retain", False))))
                 except Exception:
                     logger.exception("mqtt_message_handler_failed topic=%s", getattr(message, "topic", "<unknown>"))
 

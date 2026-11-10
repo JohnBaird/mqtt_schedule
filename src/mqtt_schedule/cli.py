@@ -38,6 +38,7 @@ from .weather_adapters import OpenWeatherFileSunTimesProvider, TempestFileRainPo
 from .weather_refresh import OpenWeatherRefreshSettings, OpenWeatherRefresher, TempestRefreshSettings, TempestRefresher
 from .domain import AccessRequest
 from .notifications import EmailNotifications, SmsNotifications
+from .input_alert_processing import InputAlertProcessor
 from .email_adapter import SmtpEmailSender, SmtpEmailSettings, validate_email_address
 from .twilio_adapter import TwilioSmsSender, TwilioSmsSettings, validate_phone_number
 
@@ -134,6 +135,8 @@ def main() -> int:
     access_request_handler = None
     controller_status_store = None
     subscriptions: list[str] = []
+    sms_notifications: SmsNotifications | None = None
+    email_notifications: EmailNotifications | None = None
 
     if args.dry_run:
         publisher = StdoutCommandPublisher(encoder)
@@ -144,6 +147,22 @@ def main() -> int:
             settings.controller_status_file,
             csv_recorder=csv_recorder,
         )
+        input_alert_processor = None
+        if args.service:
+            sms_notifications = build_sms_notifications(settings)
+            email_notifications = build_email_notifications(settings)
+            input_alert_processor = InputAlertProcessor(
+                settings=settings,
+                controller_repository=build_controller_repository(
+                    settings=settings, cli_only_destinations=args.only_destination,
+                ),
+                sms_notifications=sms_notifications,
+                email_notifications=email_notifications,
+            )
+            logging.getLogger("mqtt_schedule.cli").info(
+                "input_alerts_configured enabled=%s max_age_seconds=%s state_file=%s",
+                settings.input_alerts_enabled, settings.input_alerts_max_age_seconds, settings.input_alert_state_file,
+            )
         access_request_handler = AccessRequestMessageHandler(
             settings=settings,
             maintenance_publisher=MQTTMaintenancePublisher(encoder=encoder, client=None),
@@ -151,6 +170,7 @@ def main() -> int:
             csv_recorder=csv_recorder,
             controller_status_store=controller_status_store,
             controller_repository=FileControllerRepository(settings.controller_file),
+            input_alert_processor=input_alert_processor,
         )
         subscriptions.extend(access_request_handler.subscription_topics())
         for topic in access_request_handler.subscription_topics():
@@ -219,8 +239,6 @@ def main() -> int:
         evaluator=evaluator,
     )
 
-    sms_notifications: SmsNotifications | None = None
-    email_notifications: EmailNotifications | None = None
     try:
         refresh_jobs = build_weather_refresh_jobs(
             settings=settings,
@@ -259,8 +277,10 @@ def main() -> int:
                 now.isoformat(),
                 seconds_until_next_minute(now),
             )
-            sms_notifications = build_sms_notifications(settings, dry_run=args.dry_run)
-            email_notifications = build_email_notifications(settings, dry_run=args.dry_run)
+            if sms_notifications is None:
+                sms_notifications = build_sms_notifications(settings, dry_run=args.dry_run)
+            if email_notifications is None:
+                email_notifications = build_email_notifications(settings, dry_run=args.dry_run)
             notification_started_at = datetime.now()
             sms_notifications.notify_service_started(
                 host_name=host_identity.host_name,

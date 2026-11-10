@@ -160,3 +160,25 @@ class FileInputAlertRepository:
         if issues:
             raise ValueError(" ".join(issue.message for issue in issues))
         return rules
+
+    def load_configuration(self) -> tuple[list[InputAlertRule], set[tuple[str, str, int, str]]]:
+        """Read one snapshot, retaining explicit disabled keys for missing-rule diagnostics."""
+        payload = json.loads(self.path.read_text(encoding="utf-8"))
+        _, rules, issues = _parse_rules(payload, self.controller_file)
+        if issues:
+            raise ValueError("Invalid input-alert configuration")
+        disabled_keys: set[tuple[str, str, int, str]] = set()
+        controllers = _controller_index(self.controller_file) if payload["records"] else {}
+        for record in payload["records"]:
+            fields = record["fields"]
+            if enabled_value(fields.get("enabled")):
+                continue
+            links = fields.get("controller")
+            category, index, edge = fields.get("inputCategory"), fields.get("inputIndex"), fields.get("edge")
+            if (not isinstance(links, list) or len(links) != 1 or not isinstance(links[0], str)
+                    or links[0] not in controllers or not isinstance(category, str) or not category.strip()
+                    or isinstance(index, bool) or not isinstance(index, (int, float))
+                    or not 0 <= index <= 7 or int(index) != index or edge not in ("positive", "negative")):
+                continue
+            disabled_keys.add((controllers[links[0]][0], category.strip(), int(index), edge))
+        return rules, disabled_keys

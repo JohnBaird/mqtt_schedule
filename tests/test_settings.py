@@ -204,7 +204,8 @@ def test_sms_switches_are_controlled_by_runtime_json(tmp_path: Path, monkeypatch
 
 
 @pytest.mark.parametrize("name", ["sms_enabled", "sms_service_start_enabled", "email_enabled", "email_service_start_enabled",
-                                 "airtable_input_alerts_sync_enabled", "airtable_input_alerts_sync_run_immediately"])
+                                 "airtable_input_alerts_sync_enabled", "airtable_input_alerts_sync_run_immediately",
+                                 "input_alerts_enabled"])
 @pytest.mark.parametrize("value", ["false", 0, None])
 def test_sms_switches_require_json_booleans(tmp_path: Path, name, value) -> None:
     config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
@@ -305,3 +306,34 @@ def test_email_credentials_are_environment_only_and_not_in_repr(tmp_path: Path, 
     assert RuntimeSettings.from_env().email_enabled is False
     monkeypatch.setenv("MQTT_SCHEDULE_RECEIVER_EMAIL_ADDRESS_1", "")
     assert RuntimeSettings.from_json_file(path).receiver_email_addresses == ("second@example.test",)
+
+
+def test_input_alert_execution_controls_are_json_only_and_state_path_has_env_override(tmp_path, monkeypatch):
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    assert config["input_alerts_enabled"] is False
+    config.update(input_alerts_enabled=True, input_alerts_max_age_seconds=120,
+                  input_alert_state_file=str(tmp_path / "configured-state.json"))
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setenv("MQTT_SCHEDULE_INPUT_ALERTS_ENABLED", "false")
+    monkeypatch.setenv("MQTT_SCHEDULE_INPUT_ALERTS_MAX_AGE_SECONDS", "999")
+    settings = RuntimeSettings.from_json_file(path)
+    assert settings.input_alerts_enabled is True
+    assert settings.input_alerts_max_age_seconds == 120
+    assert settings.input_alert_state_file == tmp_path / "configured-state.json"
+    monkeypatch.setenv("MQTT_SCHEDULE_INPUT_ALERT_STATE_FILE", str(tmp_path / "override-state.json"))
+    assert RuntimeSettings.from_json_file(path).input_alert_state_file == tmp_path / "override-state.json"
+    monkeypatch.setenv("MQTT_SCHEDULE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("MQTT_SCHEDULE_INPUT_ALERT_STATE_FILE")
+    assert RuntimeSettings.from_env().input_alert_state_file == tmp_path / "state" / "input_alert_state.json"
+    assert RuntimeSettings.from_env().input_alerts_enabled is False
+
+
+@pytest.mark.parametrize("age", [0, -1, True, "300", 0.5, None, 86401])
+def test_input_alert_age_must_be_a_positive_bounded_integer(tmp_path, age):
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    config["input_alerts_max_age_seconds"] = age
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="input_alerts_max_age_seconds"):
+        RuntimeSettings.from_json_file(path)

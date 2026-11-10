@@ -28,6 +28,8 @@ It also lets us replace the legacy system incrementally instead of mixing Airtab
 
 The optional fourth export is fetched explicitly with `--sync-input-alerts-now`, or periodically when `airtable_input_alerts_sync_enabled` is true. Its manual command validates before replacing the file and exits before any MQTT/SMS/email setup. `--validate-input-alerts` validates the local export only. The three original files remain the required startup exports; adding optional alert rules does not enable input-edge notifications.
 
+Live input-edge execution separately requires `input_alerts_enabled` in `runtime.json`. Requested and unsolicited responses share the same processor; it matches local controller/category/input/direction rules and queues notifications only through enabled channels. Missing entries generate structured warnings, while explicitly disabled entries suppress sends without a missing-rule warning. See the input-alert plan for timestamp, duplicate-state, and commissioning safeguards.
+
 The rewrite now includes a separate Airtable sync path:
 
 - manual sync:

@@ -12,6 +12,7 @@ from .csv_reporting import LegacyCsvRecorder
 from .domain import AccessDecision, AccessRequest
 from .mqtt_adapter import AccessResponseRequestContext, MQTTInboundMessage, MQTTMaintenancePublisher, SPTopic
 from .settings import RuntimeSettings
+from .input_alert_processing import InputAlertProcessor
 
 
 class AccessRequestMessageHandler:
@@ -24,6 +25,7 @@ class AccessRequestMessageHandler:
         csv_recorder: LegacyCsvRecorder | None = None,
         controller_status_store: ControllerStatusStore | None = None,
         controller_repository: ControllerRepository | None = None,
+        input_alert_processor: InputAlertProcessor | None = None,
     ) -> None:
         self.settings = settings
         self.maintenance_publisher = maintenance_publisher
@@ -31,6 +33,7 @@ class AccessRequestMessageHandler:
         self.csv_recorder = csv_recorder
         self.controller_status_store = controller_status_store
         self.controller_repository = controller_repository
+        self.input_alert_processor = input_alert_processor
         self.logger = logging.getLogger("mqtt_schedule.inbound")
 
     def subscription_topics(self) -> list[str]:
@@ -220,6 +223,9 @@ class AccessRequestMessageHandler:
             )
             return
 
+        if not isinstance(payload, dict):
+            self.logger.warning("input_status_response_ignored reason=invalid_payload_object topic=%s", message.topic)
+            return
         inputs_category = _payload_str_or_none(payload.get("inputs_category"))
         input_ports = payload.get("input_ports")
         self.logger.info(
@@ -229,6 +235,10 @@ class AccessRequestMessageHandler:
             inputs_category,
             input_ports,
         )
+        if self.input_alert_processor is not None:
+            self.input_alert_processor.handle_response(
+                source_serial=parsed_topic.source_serial, payload=payload, retained=message.retained,
+            )
 
     def _handle_temperature_response(self, message: MQTTInboundMessage, parsed_topic: SPTopic) -> None:
         self.logger.info("temperature_response_message_received topic=%s", message.topic)
