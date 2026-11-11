@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 from queue import Empty, Full, Queue
 import threading
-from typing import Generic, Protocol, TypeVar
+from typing import Callable, Generic, Iterator, Protocol, TypeVar
 from uuid import uuid4
 
 
@@ -34,6 +34,19 @@ class EmailSubmission:
     status: str = "accepted"
 
 
+@dataclass(frozen=True)
+class EmailAttachment:
+    filename: str
+    content: bytes
+
+
+@dataclass(frozen=True)
+class EmailReportPart:
+    subject: str
+    body: str
+    attachments: tuple[EmailAttachment, ...] = ()
+
+
 class EmailSendError(Exception):
     def __init__(self, reason: str, *, smtp_code: int | None = None) -> None:
         super().__init__(reason)
@@ -42,7 +55,8 @@ class EmailSendError(Exception):
 
 
 class EmailSender(Protocol):
-    def send(self, *, to_address: str, subject: str, body: str) -> EmailSubmission:
+    def send(self, *, to_address: str, subject: str, body: str,
+             attachments: tuple[EmailAttachment, ...] = ()) -> EmailSubmission:
         ...
 
 
@@ -52,6 +66,8 @@ class _Notification:
     event: str
     body: str
     subject: str
+    attachments: tuple[EmailAttachment, ...] = ()
+    report_factory: Callable[[], Iterator[EmailReportPart]] | None = None
 
 
 _Sender = TypeVar("_Sender")
@@ -99,14 +115,15 @@ class _BackgroundNotifications(Generic[_Sender]):
             ),
         )
 
-    def _enqueue(self, *, event: str, body: str, subject: str = "") -> bool:
+    def _enqueue(self, *, event: str, body: str, subject: str = "",
+                 report_factory: Callable[[], Iterator[EmailReportPart]] | None = None) -> bool:
         with self._lock:
             if not self.enabled or self._closed:
                 return False
             if self.sender is None or not self.recipients:
                 self.logger.warning("%s_notification_skipped event=%s reason=not_configured", self._channel, event)
                 return False
-            notification = _Notification(uuid4().hex, event, body, subject)
+            notification = _Notification(uuid4().hex, event, body, subject, report_factory=report_factory)
             try:
                 self._queue.put_nowait(notification)
             except Full:
@@ -223,7 +240,36 @@ class EmailNotifications(_BackgroundNotifications[EmailSender]):
     def notify(self, *, event: str, subject: str, body: str) -> bool:
         return self._enqueue(event=event, subject=subject, body=body)
 
+    def notify_report(self, *, event: str, factory: Callable[[], Iterator[EmailReportPart]]) -> bool:
+        return self._enqueue(event=event, body="", report_factory=factory)
+
+    def _send(self, notification: _Notification) -> None:
+        if notification.report_factory is None:
+            super()._send(notification)
+            return
+        parts = None
+        try:
+            parts = notification.report_factory()
+            for number, part in enumerate(parts, start=1):
+                if self._stop.is_set():
+                    self.logger.warning("email_log_report_incomplete reason=shutdown notification_id=%s", notification.notification_id)
+                    break
+                super()._send(_Notification(
+                    f"{notification.notification_id}-part{number}", notification.event,
+                    part.body, part.subject, part.attachments,
+                ))
+        except Exception:
+            self.logger.error("email_log_report_failed reason=report_preparation notification_id=%s", notification.notification_id)
+        finally:
+            close = getattr(parts, "close", None)
+            if callable(close):
+                close()
+
     def _submit(self, recipient: str, notification: _Notification) -> tuple[str, str, str]:
         assert self.sender is not None
-        result = self.sender.send(to_address=recipient, subject=notification.subject, body=notification.body)
+        if notification.attachments:
+            result = self.sender.send(to_address=recipient, subject=notification.subject,
+                                      body=notification.body, attachments=notification.attachments)
+        else:
+            result = self.sender.send(to_address=recipient, subject=notification.subject, body=notification.body)
         return "message_id", result.message_id, result.status

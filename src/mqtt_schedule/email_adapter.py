@@ -10,7 +10,7 @@ import smtplib
 import ssl
 from typing import Callable
 
-from .notifications import EmailSendError, EmailSubmission
+from .notifications import EmailAttachment, EmailSendError, EmailSubmission
 
 
 def validate_email_address(value: str) -> None:
@@ -49,7 +49,8 @@ class SmtpEmailSender:
         self.settings = settings
         self._smtp_factory = smtp_factory or smtplib.SMTP
 
-    def send(self, *, to_address: str, subject: str, body: str) -> EmailSubmission:
+    def send(self, *, to_address: str, subject: str, body: str,
+             attachments: tuple[EmailAttachment, ...] = ()) -> EmailSubmission:
         validate_email_address(to_address)
         message = EmailMessage()
         message["From"] = self.settings.sender_address
@@ -58,6 +59,11 @@ class SmtpEmailSender:
         message["Date"] = formatdate(localtime=True)
         message["Message-ID"] = make_msgid()
         message.set_content(body)
+        for attachment in attachments:
+            if (not attachment.filename or any(char in attachment.filename for char in "\r\n/\\")):
+                raise ValueError("Attachment filename must be a plain filename")
+            message.add_attachment(attachment.content, maintype="application", subtype="gzip",
+                                   filename=attachment.filename)
         try:
             with self._smtp_factory(self.settings.host, self.settings.port,
                                     timeout=self.settings.timeout_seconds) as smtp:

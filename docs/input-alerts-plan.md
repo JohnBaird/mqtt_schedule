@@ -138,7 +138,7 @@ For each new admitted input-edge event with no table entry matching controller, 
 
 A zero edge mask is not a missing-rule event, although configured level rules may still match. Do not warn for every unconfigured high/low input on each poll. Apply duplicate-report suppression before emitting edge warnings, so redelivery of the same report does not add copies; distinct reports remain distinct events. An explicitly disabled matching entry represents intentional suppression, not a missing entry. An enabled rule suppressed by a window/cooldown is also not a missing entry. Controller admission checks still apply before rule matching.
 
-These warnings belong in the existing service journal, not a new dedicated logfile. A scheduled email summary of the day's warnings is deferred; no daily email job or immediate warning email is part of this stage. A missing/invalid rule file instead logs `reason=configuration_unavailable` and skips the report; it is not treated as a valid empty rule set.
+These warnings use the shared application logger, which now writes to the service journal and the standard daily application logfile. They are included in the optional daily WARNING/ERROR/CRITICAL email report described in [logging-and-reports.md](logging-and-reports.md); missing rules still do not cause an immediate SMS/email by themselves. A missing/invalid rule file instead logs `reason=configuration_unavailable` and skips the input report; it is not treated as a valid empty rule set.
 
 ## First Download
 

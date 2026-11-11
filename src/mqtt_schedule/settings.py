@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,6 +39,12 @@ class RuntimeSettings:
     email_smtp_host: str = "smtp.gmail.com"
     email_smtp_port: int = 587
     email_smtp_timeout_seconds: float = 10
+    log_file: Path = Path("/var/log/mqtt_schedule/mqtt_schedule.log")
+    log_backup_count: int = 7
+    daily_log_report_enabled: bool = False
+    daily_log_report_run_immediately: bool = False
+    daily_log_report_time: str = "21:00"
+    daily_log_report_state_file: Path = Path("/var/lib/mqtt_schedule/daily_log_report_state.json")
     sender_email_address: str | None = field(default=None, repr=False)
     email_password: str | None = field(default=None, repr=False)
     receiver_email_addresses: tuple[str, ...] = field(default=(), repr=False)
@@ -118,6 +125,14 @@ class RuntimeSettings:
     require_latest_within_minutes: int = 180
 
     def __post_init__(self) -> None:
+        for name in ("daily_log_report_enabled", "daily_log_report_run_immediately"):
+            if not isinstance(getattr(self, name), bool):
+                raise ValueError(f"{name} must be a JSON boolean")
+        if type(self.log_backup_count) is not int or not 1 <= self.log_backup_count <= 365:
+            raise ValueError("log_backup_count must be an integer from 1 through 365")
+        if (not isinstance(self.daily_log_report_time, str)
+                or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", self.daily_log_report_time)):
+            raise ValueError("daily_log_report_time must be HH:MM in 24-hour format")
         if not isinstance(self.input_alerts_enabled, bool):
             raise ValueError("input_alerts_enabled must be a JSON boolean")
         age = self.input_alerts_max_age_seconds
@@ -208,6 +223,9 @@ class RuntimeSettings:
             controller_status_csv_file=controller_status_csv_file,
             csv_backup_dir=csv_backup_dir,
             airtable_backup_dir=Path(os.environ.get("MQTT_SCHEDULE_AIRTABLE_BACKUP_DIR") or state_dir / "airtable_backup"),
+            log_file=Path(os.environ.get("MQTT_SCHEDULE_LOG_FILE") or "/var/log/mqtt_schedule/mqtt_schedule.log"),
+            daily_log_report_state_file=Path(os.environ.get("MQTT_SCHEDULE_DAILY_LOG_REPORT_STATE_FILE")
+                                             or state_dir / "daily_log_report_state.json"),
             openweather_current_file=openweather_current_file,
             openweather_forecast_file=openweather_forecast_file,
             tempest_data_dir=tempest_data_dir,
@@ -341,6 +359,12 @@ class RuntimeSettings:
             controller_status_csv_file=Path(data.get("controller_status_csv_file", "/var/lib/mqtt_schedule/controller_status_events.csv")),
             csv_backup_dir=Path(data.get("csv_backup_dir", "/var/lib/mqtt_schedule/csv_backup")),
             airtable_backup_dir=Path(data.get("airtable_backup_dir", "/var/lib/mqtt_schedule/airtable_backup")),
+            log_file=Path(data.get("log_file", "/var/log/mqtt_schedule/mqtt_schedule.log")),
+            log_backup_count=data.get("log_backup_count", 7),
+            daily_log_report_enabled=_json_bool(data, "daily_log_report_enabled", False),
+            daily_log_report_run_immediately=_json_bool(data, "daily_log_report_run_immediately", False),
+            daily_log_report_time=data.get("daily_log_report_time", "21:00"),
+            daily_log_report_state_file=Path(data.get("daily_log_report_state_file", "/var/lib/mqtt_schedule/daily_log_report_state.json")),
             openweather_current_file=Path(data["openweather_current_file"]),
             openweather_forecast_file=Path(data["openweather_forecast_file"]),
             tempest_data_dir=Path(data["tempest_data_dir"]),
@@ -452,6 +476,12 @@ class RuntimeSettings:
             controller_status_csv_file=_env_path("MQTT_SCHEDULE_CONTROLLER_STATUS_CSV_FILE", self.controller_status_csv_file),
             csv_backup_dir=_env_path("MQTT_SCHEDULE_CSV_BACKUP_DIR", self.csv_backup_dir),
             airtable_backup_dir=_env_path("MQTT_SCHEDULE_AIRTABLE_BACKUP_DIR", self.airtable_backup_dir),
+            log_file=_env_path("MQTT_SCHEDULE_LOG_FILE", self.log_file),
+            log_backup_count=self.log_backup_count,
+            daily_log_report_enabled=self.daily_log_report_enabled,
+            daily_log_report_run_immediately=self.daily_log_report_run_immediately,
+            daily_log_report_time=self.daily_log_report_time,
+            daily_log_report_state_file=_env_path("MQTT_SCHEDULE_DAILY_LOG_REPORT_STATE_FILE", self.daily_log_report_state_file),
             openweather_current_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_CURRENT_FILE", self.openweather_current_file),
             openweather_forecast_file=_env_path("MQTT_SCHEDULE_OPENWEATHER_FORECAST_FILE", self.openweather_forecast_file),
             tempest_data_dir=_env_path("MQTT_SCHEDULE_TEMPEST_DATA_DIR", self.tempest_data_dir),

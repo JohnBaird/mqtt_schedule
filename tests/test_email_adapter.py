@@ -5,7 +5,7 @@ import ssl
 import pytest
 
 from mqtt_schedule.email_adapter import SmtpEmailSender, SmtpEmailSettings
-from mqtt_schedule.notifications import EmailSendError
+from mqtt_schedule.notifications import EmailAttachment, EmailSendError
 
 
 SENDER = "sender@example.test"
@@ -150,3 +150,17 @@ def test_invalid_smtp_settings_are_rejected(changes) -> None:
 def test_email_settings_repr_hides_credentials() -> None:
     assert SENDER not in repr(settings())
     assert PASSWORD not in repr(settings())
+
+
+def test_email_report_attachments_use_standard_mime_and_preserve_content():
+    smtp = FakeSMTP()
+    attachment = EmailAttachment("issues.txt.gz", b"test-gzip-data")
+    SmtpEmailSender(settings(), smtp_factory=lambda *a, **k: smtp).send(
+        to_address=RECIPIENT, subject="Daily report", body="WARNING: 3", attachments=(attachment,),
+    )
+    parts = list(smtp.message.iter_attachments())
+    assert len(parts) == 1
+    assert parts[0].get_filename() == "issues.txt.gz"
+    assert parts[0].get_content_type() == "application/gzip"
+    assert parts[0].get_payload(decode=True) == attachment.content
+    assert smtp.message.get_body(preferencelist=("plain",)).get_content().strip() == "WARNING: 3"

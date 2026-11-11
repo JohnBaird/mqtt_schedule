@@ -81,6 +81,7 @@ def prepare_cli(monkeypatch, settings, *, fail_service=False):
     events = []
     monkeypatch.setattr(cli.RuntimeSettings, "from_env", staticmethod(lambda: settings))
     monkeypatch.setattr(cli, "_ensure_required_airtable_files", lambda _: None)
+    monkeypatch.setattr(cli, "configure_file_logging", lambda _: None)
     monkeypatch.setattr(cli.HostInfoProvider, "get_identity", lambda _: SimpleNamespace(
         session_client_id="test-session", host_name="test-linux", ip_address="127.0.0.1",
     ))
@@ -102,9 +103,11 @@ def prepare_cli(monkeypatch, settings, *, fail_service=False):
 
     class FakeRunner:
         def __init__(self, *args, **kwargs):
-            pass
+            self.scheduled_checks = []
 
         def run_forever(self):
+            for check in self.scheduled_checks:
+                check()
             events.append("service_loop")
             if fail_service:
                 raise RuntimeError("test service error")
@@ -113,6 +116,7 @@ def prepare_cli(monkeypatch, settings, *, fail_service=False):
     class FakeNotifier:
         def __init__(self, channel):
             self.channel = channel
+            self.enabled = True
 
         def notify_service_started(self, **kwargs):
             events.append((f"{self.channel}_start", kwargs))
@@ -219,3 +223,28 @@ def test_service_can_handle_unsolicited_edges_as_soon_as_mqtt_connects(settings,
     assert events.index(("sms", "input_edge")) < events.index("service_loop")
     assert settings.input_alert_state_file.exists()
     assert events[-3:] == ["email_closed", "sms_closed", "mqtt_closed"]
+
+
+def test_service_wires_daily_report_calendar_check_only_when_enabled(settings, monkeypatch):
+    settings = replace(settings, email_enabled=True, daily_log_report_enabled=True)
+    events = prepare_cli(monkeypatch, settings)
+    class Reports:
+        def __init__(self, *args, **kwargs):
+            events.append("reports_configured")
+        def tick(self):
+            events.append("reports_checked")
+    monkeypatch.setattr(cli, "DailyLogReportScheduler", Reports)
+    monkeypatch.setattr(sys, "argv", ["mqtt_schedule", "--service"])
+    assert cli.main() == 0
+    assert "reports_configured" in events and "reports_checked" in events
+
+
+def test_service_dry_run_never_initializes_daily_report_scheduler(settings, monkeypatch):
+    settings = replace(settings, email_enabled=True, daily_log_report_enabled=True)
+    prepare_cli(monkeypatch, settings)
+    def forbidden(*args, **kwargs):
+        pytest.fail("Dry-run must not initialize report scheduling")
+    monkeypatch.setattr(cli, "DailyLogReportScheduler", forbidden)
+    monkeypatch.setattr(cli, "configure_file_logging", forbidden)
+    monkeypatch.setattr(sys, "argv", ["mqtt_schedule", "--service", "--dry-run"])
+    assert cli.main() == 0

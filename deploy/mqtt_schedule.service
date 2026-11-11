@@ -7,6 +7,11 @@ Wants=network-online.target
 Type=simple
 User=mqttschedule
 Group=mqttschedule
+LogsDirectory=mqtt_schedule
+LogsDirectoryMode=0750
+UMask=0027
+StandardOutput=journal
+StandardError=journal
 WorkingDirectory=/opt/mqtt_schedule
 EnvironmentFile=-/etc/mqtt_schedule/mqtt_schedule.env
 Environment=MQTT_SCHEDULE_DATA_DIR=/etc/mqtt_schedule

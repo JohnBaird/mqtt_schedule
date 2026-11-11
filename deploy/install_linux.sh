@@ -22,6 +22,7 @@ SRC_DIR="$(cd "$1" && pwd)"
 APP_DIR="/opt/mqtt_schedule"
 ETC_DIR="/etc/mqtt_schedule"
 STATE_DIR="/var/lib/mqtt_schedule"
+LOG_DIR="/var/log/mqtt_schedule"
 UNIT_SRC="$SRC_DIR/deploy/mqtt_schedule.service"
 UNIT_DST="/etc/systemd/system/mqtt_schedule.service"
 OPENWEATHER_CURRENT_FILE="$ETC_DIR/ow_records_current.json"
@@ -35,6 +36,7 @@ echo "Source directory: $SRC_DIR"
 echo "Install directory: $APP_DIR"
 echo "Config directory: $ETC_DIR"
 echo "State directory: $STATE_DIR"
+echo "Log directory: $LOG_DIR"
 
 if [[ ! -f "$SRC_DIR/pyproject.toml" ]]; then
   echo "ERROR: $SRC_DIR does not look like the mqtt_schedule repo."
@@ -91,6 +93,7 @@ cp "$UNIT_SRC" "$UNIT_DST"
 systemctl daemon-reload
 
 echo "Setting ownership and permissions..."
+install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 750 "$LOG_DIR"
 chown -R root:root "$APP_DIR"
 chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$STATE_DIR"
 chown root:"$SERVICE_GROUP" "$ETC_DIR"
@@ -121,6 +124,7 @@ Next steps:
    - $OPENWEATHER_CURRENT_FILE
    - $OPENWEATHER_FORECAST_FILE
    - $TEMPEST_DIR
+   Daily application logs: $LOG_DIR/mqtt_schedule.log (seven daily archives).
 6. Dry-run test:
    $APP_DIR/.venv/bin/python -m mqtt_schedule --config $ETC_DIR/runtime.json --dry-run
 7. Start service:

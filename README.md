@@ -124,7 +124,8 @@ Configuration layout:
   - [mqtt_schedule.env.example](E:\Development\mqtt_schedule\deploy\mqtt_schedule.env.example:1)
 - The Airtable export file contract is documented in [airtable-file-contract.md](E:\Development\mqtt_schedule\docs\airtable-file-contract.md:1).
 - The per-controller/input notification table, download instructions, and Linux commissioning procedure are documented in [input-alerts-plan.md](docs/input-alerts-plan.md), including confirmed edge clearing after broker acknowledgment for controller `44864172347607`. Requested and unsolicited responses use the same processor, with missing-rule warnings and SMS/email workers; execution is off by default through `input_alerts_enabled`.
-- Linux input-edge delivery was confirmed by the owner on November 9, 2026 after reinstalling source commit `a896921` into the server virtual environment. The November 10 schema adds `triggerSource` (`positiveEdge`, `negativeEdge`, `levelHigh`, `levelLow`), string indexes, time windows, and `notificationCooldown` for every trigger type. These additions have automated fake-provider coverage and still need live commissioning. Daily warning-summary emails remain deferred.
+- Linux input-edge delivery was confirmed by the owner on November 9, 2026 after reinstalling source commit `a896921` into the server virtual environment. The November 10 schema adds `triggerSource` (`positiveEdge`, `negativeEdge`, `levelHigh`, `levelLow`), string indexes, time windows, and `notificationCooldown` for every trigger type. These additions have automated fake-provider coverage and still need live commissioning.
+- Daily application file logging and configurable 21:00 email reports are implemented; see [logging-and-reports.md](docs/logging-and-reports.md) for Linux rollout, optional history import, and preview commands. Reporting defaults off until enabled, and all-history startup diagnostics normally stay off. Provider submission/live Linux delivery still require commissioning.
 
 Planned placement for connection information:
 
@@ -294,6 +295,10 @@ Important Linux runtime locations:
   Optional validated input-alert rule export; execution requires `input_alerts_enabled` and matching controller/rule/channel enablement.
 - `/var/lib/mqtt_schedule/input_alert_state.json`
   Private bounded duplicate-report state (at most 1024 report hashes, retained for 24 hours), created on the first eligible edge/level report. No append-only history or automatic delivery retry queue. Notification cooldowns are kept only in memory and reset on application restart.
+- `/var/log/mqtt_schedule/mqtt_schedule.log`
+  Live service Python logging from all modules, INFO and higher, in addition to console/journal output. Standard midnight rotation has no size limit and retains seven date-suffixed archives plus the current file. Native systemd lifecycle messages remain in the journal.
+- `/var/lib/mqtt_schedule/daily_log_report_state.json`
+  Private last-daily-attempt marker for report deduplication across restarts; not a delivery receipt or issue history. Do not reset it during ordinary updates.
 - `/var/lib/mqtt_schedule/airtable_backup/`
   Private last-known-good copies of the three core Airtable exports and the optional input-alert export when present and valid.
 - `/etc/mqtt_schedule/ow_records_current.json`
@@ -577,14 +582,20 @@ sudo journalctl -u mqtt_schedule -n 50 --no-pager
 
 Operational note:
 
-- `mqtt_schedule` logs to the `systemd` journal, not to a plain text logfile.
-- Use `journalctl -u mqtt_schedule` and pipe to `grep` if needed.
+- Live `--service` execution logs to `/var/log/mqtt_schedule/mqtt_schedule.log` as well as the `systemd` journal. One-shot CLI commands remain console-only. Prepare the log directory as service-owned 0750 and apply the shipped unit settings or documented drop-in before the first file-logging start.
+- Standard `TimedRotatingFileHandler` rotates on the first emitted message after server-local midnight, regardless of file size, and retains `log_backup_count` archives (default seven) plus the active file. Console output and journal access remain available. The handler is not customized for rotation.
+- Daily report controls in `runtime.json` are `daily_log_report_enabled` (default false), `daily_log_report_run_immediately` (default false), and `daily_log_report_time` (default `21:00`). Both report modes require the global email switch and configured recipients. The daily report covers exactly the preceding 24 hours; optional startup diagnostics cover all retained application-file issues, including previously reported ones.
+- Reports include WARNING/ERROR/CRITICAL counts and full redacted messages/tracebacks in numbered gzip attachments, excluding INFO/DEBUG issues. Preparation and sending use the background email worker. Calendar timing uses `timezone_name`, not a 24-hour interval from startup. A persisted attempt marker prevents restart-driven daily duplicates; queue/SMTP failure can still leave an unsent/partial report, with no automatic retries.
+- Use `--preview-log-report` for a no-email, no-MQTT preview and add `--log-report-all-history` for startup scope. Before first file logging, optional `--import-log-history` reads scoped journal JSON from stdin into an empty destination without overwriting existing files. Follow the detailed [rollout and migration instructions](docs/logging-and-reports.md).
+- Native systemd failures and very early startup exceptions may exist only in the journal. Do not rely solely on journal priority filters for historical Python stream logs; the new file/report parser reads the actual textual Python level. Incomplete history/read errors are identified in the report rather than treated as a complete healthy period.
 
 Examples:
 
 ```bash
 sudo journalctl -u mqtt_schedule --since today | grep online_status_response
 sudo journalctl -u mqtt_schedule -n 200 | grep config_file_response
+sudo tail -n 200 -F /var/log/mqtt_schedule/mqtt_schedule.log
+sudo grep -E ' (WARNING|ERROR|CRITICAL) ' /var/log/mqtt_schedule/mqtt_schedule.log
 ```
 
 ## Staging Venv Recovery
@@ -690,6 +701,7 @@ Keep this section at the end of the README and update it whenever behavior chang
 
 Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
 
+- `0b49d05` Add input level triggers, time windows, and notification cooldowns
 - `a896921` Add input-edge SMS and email alerts with duplicate protection
 - `d4537c5` Add optional Airtable input-alert download and validation
 - `93fe51e` Add configurable Gmail  service startup email
@@ -709,7 +721,6 @@ Recent history from git (through the commit before this README edit; run the com
 - `504418c` Add Mongo foundation and ingestion audit support
 - `55fa81b` Add periodic Airtable sync jobs
 - `0152acf` Add controller online recovery threshold
-- `a4519a3` Log controller offline timeout events
 
 To see the latest 20 commits at any time:
 

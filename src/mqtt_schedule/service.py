@@ -42,12 +42,14 @@ class ServiceRunner:
         sleeper: Sleeper | None = None,
         config: ServiceConfig | None = None,
         periodic_jobs: list[PeriodicJob] | None = None,
+        scheduled_checks: list[Callable[[], None]] | None = None,
     ) -> None:
         self.application = application
         self.clock = clock or datetime.now
         self._custom_sleeper = sleeper
         self.config = config or ServiceConfig()
         self.periodic_jobs = periodic_jobs or []
+        self.scheduled_checks = scheduled_checks or []
         self._stop_event = threading.Event()
         self._last_tick_key: str | None = None
         self.logger = logging.getLogger("mqtt_schedule.service")
@@ -58,6 +60,7 @@ class ServiceRunner:
     def run_forever(self) -> int:
         try:
             startup_now = self.clock()
+            self._run_scheduled_checks()
             self._run_periodic_jobs(startup_now)
             if self.config.run_immediately:
                 self.logger.info("service_tick trigger=run_immediately at=%s", startup_now.isoformat())
@@ -71,6 +74,7 @@ class ServiceRunner:
                     self._run_tick(now)
 
                 self._run_periodic_jobs(now)
+                self._run_scheduled_checks()
                 self._sleep_until_next_poll()
         except ServiceShutdown:
             self.logger.info("service_shutdown signal_received=true")
@@ -111,6 +115,15 @@ class ServiceRunner:
             self._custom_sleeper(self.config.poll_interval_seconds)
             return
         self._stop_event.wait(self.config.poll_interval_seconds)
+
+    def _run_scheduled_checks(self) -> None:
+        for check in self.scheduled_checks:
+            if self._stop_event.is_set():
+                return
+            try:
+                check()
+            except Exception:
+                self.logger.exception("scheduled_check_failed")
 
     @staticmethod
     def _run_periodic_job(job: PeriodicJob) -> None:

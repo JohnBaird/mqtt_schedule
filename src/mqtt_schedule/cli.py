@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from pathlib import Path
+import socket
+import sys
 import requests
 
 from .airtable_repositories import (
@@ -41,6 +43,9 @@ from .notifications import EmailNotifications, SmsNotifications
 from .input_alert_processing import InputAlertProcessor
 from .email_adapter import SmtpEmailSender, SmtpEmailSettings, validate_email_address
 from .twilio_adapter import TwilioSmsSender, TwilioSmsSettings, validate_phone_number
+from .logging_setup import configure_file_logging
+from .log_reports import DailyLogReportScheduler, LogReportSource
+from .log_history import import_journal_history
 
 
 def main() -> int:
@@ -53,6 +58,9 @@ def main() -> int:
     parser.add_argument("--now", help="Override current timestamp in ISO format.")
     parser.add_argument("--dry-run", action="store_true", help="Print MQTT messages instead of publishing them.")
     parser.add_argument("--explain", action="store_true", help="Print schedule match explanations for validation.")
+    parser.add_argument("--preview-log-report", action="store_true", help="Preview report summaries without email or MQTT.")
+    parser.add_argument("--log-report-all-history", action="store_true", help="Preview all retained history instead of 24 hours.")
+    parser.add_argument("--import-log-history", action="store_true", help="Import journal JSON from stdin before the first file-logging start.")
     parser.add_argument(
         "--validate-airtable-files",
         action="store_true",
@@ -87,10 +95,38 @@ def main() -> int:
     parser.add_argument("--service", action="store_true", help="Run as a long-lived Linux-style service.")
     parser.add_argument("--run-immediately", action="store_true", help="When used with --service, execute one tick before waiting for the next minute boundary.")
     args = parser.parse_args()
+    if args.log_report_all_history and not args.preview_log_report:
+        parser.error("--log-report-all-history requires --preview-log-report")
+    if args.import_log_history and args.dry_run:
+        parser.error("History import writes files; it cannot be combined with --dry-run")
+    if sum((args.service, args.sync_airtable_now, args.sync_input_alerts_now, args.validate_input_alerts,
+            args.preview_log_report, args.import_log_history)) > 1 and (args.preview_log_report or args.import_log_history):
+        parser.error("Log report preview/import must run separately from service and sync commands")
     if sum((args.sync_airtable_now, args.sync_input_alerts_now, args.validate_input_alerts)) > 1:
         parser.error("Choose only one of --sync-airtable-now, --sync-input-alerts-now, or --validate-input-alerts")
 
     settings = RuntimeSettings.from_json_file(args.config) if args.config else RuntimeSettings.from_env()
+    if args.import_log_history:
+        try:
+            if sys.stdin.isatty():
+                raise ValueError("Pipe journal JSON into this command")
+            result = import_journal_history(settings, sys.stdin)
+        except (OSError, ValueError, OverflowError):
+            logging.getLogger("mqtt_schedule.cli").error("log_history_import_failed reason=invalid_input_or_destination partial_files_may_exist=true")
+            return 1
+        print("log_history_import " + " ".join(f"{key}={value}" for key, value in result.items()))
+        return 0
+    if args.preview_log_report:
+        end = datetime.fromisoformat(args.now) if args.now else datetime.now(timezone.utc)
+        if end.tzinfo is None:
+            parser.error("Report --now must include a timezone offset")
+        for part in LogReportSource(settings, host_name=socket.gethostname()).parts(end=end, all_history=args.log_report_all_history):
+            print(part.subject)
+            print(part.body)
+            for attachment in part.attachments:
+                print(f"attachment={attachment.filename} compressed_bytes={len(attachment.content)}")
+        return 0
+    file_handler = configure_file_logging(settings) if args.service and not args.dry_run else None
     if args.sync_airtable_now:
         return _sync_airtable_now(settings)
     if args.sync_input_alerts_now:
@@ -292,6 +328,14 @@ def main() -> int:
                 source_serial=source_serial,
                 started_at=notification_started_at,
             )
+            if not args.dry_run and settings.daily_log_report_enabled and settings.email_enabled and email_notifications.enabled:
+                source = LogReportSource(settings, host_name=host_identity.host_name, handler=file_handler)
+                reports = DailyLogReportScheduler(settings, email_notifications, source)
+                runner.scheduled_checks.append(reports.tick)
+                logger.info("daily_log_report_configured time=%s timezone=%s run_immediately=%s",
+                            settings.daily_log_report_time, settings.timezone_name, settings.daily_log_report_run_immediately)
+            else:
+                logger.info("daily_log_report_disabled reason=feature_email_or_dry_run_gate")
             return runner.run_forever()
 
         if args.refresh_weather_now:

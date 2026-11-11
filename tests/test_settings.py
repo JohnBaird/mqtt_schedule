@@ -205,7 +205,7 @@ def test_sms_switches_are_controlled_by_runtime_json(tmp_path: Path, monkeypatch
 
 @pytest.mark.parametrize("name", ["sms_enabled", "sms_service_start_enabled", "email_enabled", "email_service_start_enabled",
                                  "airtable_input_alerts_sync_enabled", "airtable_input_alerts_sync_run_immediately",
-                                 "input_alerts_enabled"])
+                                 "input_alerts_enabled", "daily_log_report_enabled", "daily_log_report_run_immediately"])
 @pytest.mark.parametrize("value", ["false", 0, None])
 def test_sms_switches_require_json_booleans(tmp_path: Path, name, value) -> None:
     config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
@@ -336,4 +336,38 @@ def test_input_alert_age_must_be_a_positive_bounded_integer(tmp_path, age):
     path = tmp_path / "runtime.json"
     path.write_text(json.dumps(config), encoding="utf-8")
     with pytest.raises(ValueError, match="input_alerts_max_age_seconds"):
+        RuntimeSettings.from_json_file(path)
+
+
+def test_log_report_settings_are_json_controlled_and_paths_support_private_environment(tmp_path, monkeypatch):
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    config.update(log_file=str(tmp_path / "logs" / "app.log"), log_backup_count=7,
+                  daily_log_report_enabled=True, daily_log_report_run_immediately=False,
+                  daily_log_report_time="21:00", daily_log_report_state_file=str(tmp_path / "report.json"))
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setenv("MQTT_SCHEDULE_DAILY_LOG_REPORT_ENABLED", "false")
+    monkeypatch.setenv("MQTT_SCHEDULE_DAILY_LOG_REPORT_RUN_IMMEDIATELY", "true")
+    value = RuntimeSettings.from_json_file(path)
+    assert value.daily_log_report_enabled is True and value.daily_log_report_run_immediately is False
+    assert value.log_backup_count == 7 and value.daily_log_report_time == "21:00"
+    assert value.log_file == tmp_path / "logs" / "app.log"
+    monkeypatch.setenv("MQTT_SCHEDULE_LOG_FILE", str(tmp_path / "override.log"))
+    monkeypatch.setenv("MQTT_SCHEDULE_DAILY_LOG_REPORT_STATE_FILE", str(tmp_path / "override.json"))
+    assert RuntimeSettings.from_json_file(path).log_file == tmp_path / "override.log"
+    assert RuntimeSettings.from_env().daily_log_report_state_file == tmp_path / "override.json"
+    assert RuntimeSettings.from_env().daily_log_report_enabled is False
+
+
+@pytest.mark.parametrize("changes", [
+    {"log_backup_count": 0}, {"log_backup_count": "7"}, {"log_backup_count": True},
+    {"daily_log_report_time": "25:00"}, {"daily_log_report_time": "9:00"},
+    {"daily_log_report_time": "21:60"}, {"daily_log_report_time": None},
+])
+def test_invalid_log_report_settings_are_rejected(tmp_path, changes):
+    config = json.loads((Path(__file__).resolve().parent.parent / "deploy/runtime.example.json").read_text())
+    config.update(changes)
+    path = tmp_path / "runtime.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError):
         RuntimeSettings.from_json_file(path)
