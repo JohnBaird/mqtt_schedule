@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -133,7 +134,19 @@ class AirtableSyncService:
             params: dict[str, str] = {}
             if offset:
                 params["offset"] = offset
-            response = self.session.get(url, headers=headers, params=params, timeout=30)
+            for attempt in range(4):
+                try:
+                    response = self.session.get(url, headers=headers, params=params, timeout=30)
+                    break
+                except (requests.ConnectionError, requests.Timeout) as exc:
+                    if attempt == 3:
+                        raise
+                    delay = 2 ** attempt
+                    self.logger.info(
+                        "airtable_sync_retry table_name=%s retry=%s delay_seconds=%s error_type=%s",
+                        table_name, attempt + 1, delay, type(exc).__name__,
+                    )
+                    time.sleep(delay)
             response.raise_for_status()
             payload = response.json()
             if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):

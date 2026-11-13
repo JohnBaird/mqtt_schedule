@@ -358,6 +358,8 @@ Current inbound MQTT behavior:
 
 Current Airtable sync behavior:
 
+- Each Airtable page request retries connection failures and timeouts up to three times, waiting 1, 2, and 4 seconds. Each attempt retains the 30-second timeout. Retries are logged at INFO without request credentials. HTTP errors and invalid payloads fail immediately. If retries are exhausted, the sync reports the error and leaves the affected export unchanged.
+
 - `python -m mqtt_schedule --sync-airtable-now` fetches controller, schedule, and access-user exports from Airtable into the local JSON contract files.
 - Optional `--sync-input-alerts-now` fetches only the `input-alerts` table, validates enabled rules against the local controller cache, and saves a private backup. `--validate-input-alerts` checks the local rules without API calls. Both exit before MQTT or notification startup.
 - Input alerts follow the other Airtable exports: `records[].fields`, `Name`, and lowercase `enabled`. All four readers share checkbox/legacy-text enablement (`true` or `"true"` enables; false/missing/other values disable). A disabled input-alert example lives beside the other table examples in `deploy/examples/`.
@@ -699,8 +701,9 @@ Recommended next implementation step:
 
 Keep this section at the end of the README and update it whenever behavior changes in a meaningful way. The format should stay lightweight: short commit hash plus one-line summary.
 
-Recent history from git (through the commit before this README edit; run the command below for the current HEAD):
+Recent history from git (latest 20 commits at the time of this edit):
 
+- `f128c62` Add daily rotating logs and scheduled email issue reports
 - `0b49d05` Add input level triggers, time windows, and notification cooldowns
 - `a896921` Add input-edge SMS and email alerts with duplicate protection
 - `d4537c5` Add optional Airtable input-alert download and validation
@@ -720,7 +723,6 @@ Recent history from git (through the commit before this README edit; run the com
 - `274e2ef` Add Mongo foundation and ingestion audit support
 - `504418c` Add Mongo foundation and ingestion audit support
 - `55fa81b` Add periodic Airtable sync jobs
-- `0152acf` Add controller online recovery threshold
 
 To see the latest 20 commits at any time:
 

@@ -1,5 +1,9 @@
 import json
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
+import requests
 
 from mqtt_schedule.airtable_sync import AirtableSyncService
 from mqtt_schedule.settings import RuntimeSettings
@@ -115,3 +119,82 @@ def test_airtable_sync_targets_only_requested_export(tmp_path: Path) -> None:
     assert settings.controller_file.exists()
     assert not settings.schedule_file.exists()
     assert not settings.access_users_file.exists()
+
+
+@pytest.mark.parametrize("error_type", [requests.ConnectionError, requests.ConnectTimeout, requests.ReadTimeout])
+def test_airtable_sync_retries_transient_failures(tmp_path, monkeypatch, error_type):
+    settings = _settings(tmp_path)
+    payload = {"records": [{"id": "recovered"}]}
+    session = Mock()
+    session.get.side_effect = [error_type("disconnected")] * 3 + [FakeResponse(payload)]
+    sleep = Mock()
+    monkeypatch.setattr("mqtt_schedule.airtable_sync.time.sleep", sleep)
+
+    AirtableSyncService(settings, session=session).sync_targets({"controller"})
+
+    assert session.get.call_count == 4
+    assert [call.args[0] for call in sleep.call_args_list] == [1, 2, 4]
+    assert json.loads(settings.controller_file.read_text()) == payload
+    assert all(call.kwargs["timeout"] == 30 for call in session.get.call_args_list)
+
+
+def test_airtable_sync_exhausted_retries_preserve_export_on_later_page(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    original = '{"records": [{"id": "existing"}]}\n'
+    settings.controller_file.write_text(original)
+    session = Mock()
+    session.get.side_effect = [
+        FakeResponse({"records": [{"id": "first"}], "offset": "next-page"}),
+        *[requests.ConnectionError("disconnected") for _ in range(4)],
+    ]
+    sleep = Mock()
+    monkeypatch.setattr("mqtt_schedule.airtable_sync.time.sleep", sleep)
+
+    with pytest.raises(requests.ConnectionError):
+        AirtableSyncService(settings, session=session).sync_targets({"controller"})
+
+    assert session.get.call_count == 5
+    assert settings.controller_file.read_text() == original
+    assert not settings.controller_file.with_suffix(".json.tmp").exists()
+    assert [call.kwargs["params"] for call in session.get.call_args_list] == [
+        {}, {"offset": "next-page"}, {"offset": "next-page"},
+        {"offset": "next-page"}, {"offset": "next-page"},
+    ]
+
+
+def test_airtable_sync_retry_recovers_later_page_without_duplicate_records(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    session = Mock()
+    session.get.side_effect = [
+        FakeResponse({"records": [{"id": "first"}], "offset": "next-page"}),
+        requests.ConnectionError("disconnected"),
+        FakeResponse({"records": [{"id": "second"}]}),
+    ]
+    monkeypatch.setattr("mqtt_schedule.airtable_sync.time.sleep", Mock())
+
+    AirtableSyncService(settings, session=session).sync_targets({"controller"})
+
+    assert json.loads(settings.controller_file.read_text()) == {
+        "records": [{"id": "first"}, {"id": "second"}],
+    }
+
+
+@pytest.mark.parametrize("failure", [requests.HTTPError("unauthorized"), ValueError("invalid JSON")])
+def test_airtable_sync_does_not_retry_response_errors(tmp_path, monkeypatch, failure):
+    settings = _settings(tmp_path)
+    response = Mock()
+    if isinstance(failure, requests.HTTPError):
+        response.raise_for_status.side_effect = failure
+    else:
+        response.json.side_effect = failure
+    session = Mock()
+    session.get.return_value = response
+    sleep = Mock()
+    monkeypatch.setattr("mqtt_schedule.airtable_sync.time.sleep", sleep)
+
+    with pytest.raises(type(failure)):
+        AirtableSyncService(settings, session=session).sync_targets({"controller"})
+
+    session.get.assert_called_once()
+    sleep.assert_not_called()
+    assert not settings.controller_file.exists()
